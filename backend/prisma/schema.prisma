@@ -26,6 +26,12 @@ enum OrderStatus {
   REFUNDED
 }
 
+enum FlashSaleStatus {
+  UPCOMING
+  ONGOING
+  ENDED
+}
+
 enum PaymentMethod {
   WECHAT
   ALIPAY
@@ -47,6 +53,7 @@ model User {
   cartItems    CartItem[]
   orders       Order[]
   passwordResets PasswordReset[]
+  flashSaleOrders FlashSaleOrder[]
 }
 
 model Session {
@@ -93,6 +100,7 @@ model Book {
   category    Category   @relation(fields: [categoryId], references: [id])
   cartItems   CartItem[]
   orderItems  OrderItem[]
+  flashSales  FlashSale[]
 }
 
 model CartItem {
@@ -141,6 +149,7 @@ model Order {
   updatedAt     DateTime     @updatedAt
   user          User         @relation(fields: [userId], references: [id])
   items         OrderItem[]
+  flashSaleOrder FlashSaleOrder?
 }
 
 model OrderItem {
@@ -155,4 +164,37 @@ model OrderItem {
   createdAt DateTime @default(now())
   order     Order    @relation(fields: [orderId], references: [id])
   book      Book     @relation(fields: [bookId], references: [id])
+}
+
+model FlashSale {
+  id           String   @id @default(cuid())
+  bookId       String
+  book         Book     @relation(fields: [bookId], references: [id])
+  salePriceCents Int
+  stock        Int
+  soldCount    Int      @default(0)
+  startTime    DateTime
+  endTime      DateTime
+  perUserLimit Int      @default(1)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  orders       FlashSaleOrder[]
+
+  @@index([startTime, endTime])
+}
+
+model FlashSaleOrder {
+  id           String     @id @default(cuid())
+  flashSaleId  String
+  userId       String
+  quantity     Int
+  orderId      String?    @unique
+  createdAt    DateTime   @default(now())
+  flashSale    FlashSale  @relation(fields: [flashSaleId], references: [id])
+  user         User       @relation(fields: [userId], references: [id])
+  order        Order?     @relation(fields: [orderId], references: [id])
+
+  @@unique([flashSaleId, userId])
+  @@index([flashSaleId])
+  @@index([userId])
 }

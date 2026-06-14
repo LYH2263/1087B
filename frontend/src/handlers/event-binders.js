@@ -9,6 +9,8 @@ import {
   addressSchema,
   adminBookSchema,
   adminCategorySchema,
+  flashSaleCreateSchema,
+  flashSalePurchaseSchema,
   COVER_MAX_SIZE,
   COVER_TYPES
 } from '../validation/schemas.js';
@@ -140,6 +142,7 @@ export function bindEventHandlers({
   loadOrders,
   loadAddresses,
   loadAdmin,
+  loadFlashSales,
   safeRender,
   openModal,
   closeModal,
@@ -340,6 +343,61 @@ export function bindEventHandlers({
       await loadAdmin();
       safeRender();
       form.reset();
+    },
+    'admin-flash-sale': async (form) => {
+      const data = getFormData(form);
+      const parsed = flashSaleCreateSchema.parse({
+        bookId: data.bookId,
+        salePrice: data.salePrice,
+        stock: data.stock,
+        startTime: data.startTime,
+        endTime: data.endTime,
+        perUserLimit: data.perUserLimit
+      });
+      
+      if (data.flashSaleId) {
+        await api.admin.updateFlashSale(data.flashSaleId, parsed);
+        state.admin.editingFlashSale = null;
+        showToast('秒杀场次已更新', 'success');
+      } else {
+        await api.admin.createFlashSale(parsed);
+        showToast('秒杀场次已创建', 'success');
+      }
+      await loadAdmin();
+      safeRender();
+      form.reset();
+    },
+    'flash-sale-purchase': async (form) => {
+      const data = getFormData(form);
+      const parsed = flashSalePurchaseSchema.parse({
+        flashSaleId: data.flashSaleId,
+        quantity: data.quantity,
+        addressId: data.addressId,
+        paymentMethod: data.paymentMethod
+      });
+      
+      const submitBtn = form.querySelector('button[type="submit"]');
+      const originalText = submitBtn?.textContent;
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = '抢购中...';
+      }
+      
+      try {
+        const result = await api.purchaseFlashSale(parsed);
+        showToast(`抢购成功！订单号：${result.orderId}`, 'success');
+        closeModal();
+        await loadFlashSales();
+        await loadOrders();
+        if (typeof state === 'object' && state.view === 'books') {
+          safeRender();
+        }
+      } finally {
+        if (submitBtn && document.body.contains(submitBtn)) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = originalText || '立即抢购';
+        }
+      }
     }
   };
 
@@ -490,8 +548,134 @@ export function bindEventHandlers({
       link.download = 'orders.csv';
       link.click();
       URL.revokeObjectURL(url);
+    },
+    'purchase-flash-sale': async (target) => {
+      if (!state.user) {
+        openLoginModal();
+        return;
+      }
+      
+      const flashSaleId = target.dataset.id;
+      const flashSale = state.flashSales.items?.find(item => item.id === flashSaleId);
+      if (!flashSale) {
+        showToast('秒杀场次不存在', 'error');
+        return;
+      }
+      
+      const now = new Date(Date.now() + (state.flashSales.clientTimeOffset || 0));
+      const startTime = new Date(flashSale.startTime);
+      const endTime = new Date(flashSale.endTime);
+      
+      if (now < startTime) {
+        showToast('秒杀还未开始', 'error');
+        return;
+      }
+      if (now > endTime) {
+        showToast('秒杀已结束', 'error');
+        return;
+      }
+      
+      const remainingStock = flashSale.stock - flashSale.soldCount;
+      if (remainingStock <= 0) {
+        showToast('秒杀已售罄', 'error');
+        return;
+      }
+      
+      if (!state.addresses || state.addresses.length === 0) {
+        try {
+          await loadAddresses();
+        } catch (e) {
+          // ignore
+        }
+      }
+      
+      const addressOptions = (state.addresses || [])
+        .map(
+          (addr) => `
+          <option value="${addr.id}" ${addr.isDefault ? 'selected' : ''}>
+            ${addr.recipient} ${addr.phone} ${addr.state}${addr.city}${addr.line1}
+          </option>
+        `
+        )
+        .join('');
+      
+      if (!addressOptions) {
+        showToast('请先添加收货地址', 'error');
+        return;
+      }
+      
+      const book = flashSale.book || {};
+      
+      openModal(`
+        <div class="space-y-4">
+          <h3 class="text-lg font-semibold">确认抢购</h3>
+          <div class="flex gap-3 p-3 bg-slate-50 rounded-xl">
+            <img src="${book.coverUrl || '/covers/cover-1.svg'}" alt="${book.title || ''}" class="w-16 h-20 object-contain rounded-lg bg-white" />
+            <div class="flex-1">
+              <p class="font-semibold">${book.title || ''}</p>
+              <p class="text-sm text-slate-500">${book.author || ''}</p>
+              <div class="flex items-baseline gap-2 mt-1">
+                <span class="text-lg font-bold text-red-500">${formatCurrencyLocal(flashSale.salePrice)}</span>
+                <span class="text-xs text-slate-400 line-through">${formatCurrencyLocal(book.originalPrice || flashSale.originalPrice || 0)}</span>
+              </div>
+            </div>
+          </div>
+          <form data-form="flash-sale-purchase" class="space-y-3" novalidate>
+            <input type="hidden" name="flashSaleId" value="${flashSaleId}" />
+            <div class="space-y-1">
+              <label class="text-sm text-slate-600">购买数量</label>
+              <input class="input" type="number" name="quantity" min="1" max="${Math.min(flashSale.perUserLimit, remainingStock)}" value="1" required />
+              <p class="text-xs text-slate-500">每人限购 ${flashSale.perUserLimit} 件，剩余 ${remainingStock} 件</p>
+            </div>
+            <div class="space-y-1">
+              <label class="text-sm text-slate-600">收货地址</label>
+              <select class="input" name="addressId" required>
+                <option value="">请选择收货地址</option>
+                ${addressOptions}
+              </select>
+            </div>
+            <div class="space-y-1">
+              <label class="text-sm text-slate-600">支付方式</label>
+              <div class="grid md:grid-cols-3 gap-3" data-error-group="paymentMethod">
+                <label class="card p-3 flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="paymentMethod" value="WECHAT" checked /> 微信支付
+                </label>
+                <label class="card p-3 flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="paymentMethod" value="ALIPAY" /> 支付宝
+                </label>
+                <label class="card p-3 flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="paymentMethod" value="COD" /> 货到付款
+                </label>
+              </div>
+            </div>
+            <button class="btn-primary w-full" type="submit">立即抢购</button>
+          </form>
+        </div>
+      `);
+    },
+    'edit-flash-sale': async (target) => {
+      const fs = state.admin.flashSales.find((item) => item.id === target.dataset.id);
+      state.admin.editingFlashSale = fs;
+      safeRender();
+    },
+    'cancel-edit-flash-sale': async () => {
+      state.admin.editingFlashSale = null;
+      safeRender();
+    },
+    'delete-flash-sale': async (target) => {
+      if (!confirm('确定要删除这个秒杀场次吗？删除后无法恢复。')) {
+        return;
+      }
+      await api.admin.deleteFlashSale(target.dataset.id);
+      await loadAdmin();
+      safeRender();
+      showToast('秒杀场次已删除', 'success');
     }
   };
+  
+  function formatCurrencyLocal(value) {
+    return `¥${Number(value).toFixed(2)}`;
+  }
 
   viewContent.addEventListener('click', async (event) => {
     const actionTarget = event.target.closest('[data-action]');

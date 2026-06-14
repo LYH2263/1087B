@@ -215,10 +215,53 @@ export const api = {
   deleteAddress(id) {
     return request(`/addresses/${id}`, { method: 'DELETE' });
   },
+  getServerTime() {
+    return request('/flash-sales/time');
+  },
+  getActiveFlashSales() {
+    return request('/flash-sales/active');
+  },
+  getFlashSale(id) {
+    return request(`/flash-sales/${id}`);
+  },
+  purchaseFlashSale(payload) {
+    return request('/flash-sales/purchase', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+  },
+  getMyFlashSaleOrders() {
+    return request('/flash-sales/orders/mine');
+  },
   admin: {
     getBooks(params = {}) {
       const query = new URLSearchParams(params).toString();
       return request(`/admin/books${query ? `?${query}` : ''}`);
+    },
+    getFlashSales(params = {}) {
+      const query = new URLSearchParams(params).toString();
+      return request(`/admin/flash-sales${query ? `?${query}` : ''}`);
+    },
+    getFlashSale(id) {
+      return request(`/admin/flash-sales/${id}`);
+    },
+    createFlashSale(payload) {
+      return request('/admin/flash-sales', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    },
+    updateFlashSale(id, payload) {
+      return request(`/admin/flash-sales/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    },
+    deleteFlashSale(id) {
+      return request(`/admin/flash-sales/${id}`, { method: 'DELETE' });
     },
     createBook(payload) {
       return request('/admin/books', {

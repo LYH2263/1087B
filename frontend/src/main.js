@@ -39,7 +39,18 @@ const toastMap = [
   [/invalid_file_type/i, '仅支持 JPG/PNG/WEBP/GIF/SVG 格式图片'],
   [/file_too_large/i, '图片大小不能超过 2MB'],
   [/forbidden/i, '没有权限执行该操作'],
-  [/internal server error/i, '服务器开小差了，请稍后再试']
+  [/internal server error/i, '服务器开小差了，请稍后再试'],
+  [/FLASH_SALE_NOT_FOUND|flash_sale_not_found/i, '秒杀场次不存在'],
+  [/FLASH_SALE_NOT_STARTED|flash_sale_not_started/i, '秒杀还未开始'],
+  [/FLASH_SALE_ENDED|flash_sale_ended/i, '秒杀已结束'],
+  [/FLASH_SALE_OUT_OF_STOCK|flash_sale_out_of_stock/i, '秒杀已售罄'],
+  [/FLASH_SALE_PURCHASE_LIMIT|flash_sale_purchase_limit/i, '您已参与过本场秒杀，每人限购一次'],
+  [/FLASH_SALE_QUANTITY_EXCEEDS_LIMIT|flash_sale_quantity_exceeds_limit/i, '购买数量超过限购限制'],
+  [/FLASH_SALE_PRICE_TOO_HIGH|flash_sale_price_too_high/i, '秒杀价必须低于原价'],
+  [/FLASH_SALE_OVERLAPPING|flash_sale_overlapping/i, '同一书籍不能有重叠的秒杀场次'],
+  [/FLASH_SALE_HAS_ORDERS|flash_sale_has_orders/i, '该场次已有订单，无法删除'],
+  [/FLASH_SALE_STOCK_TOO_LOW|flash_sale_stock_too_low/i, '库存不能低于已售数量'],
+  [/BOOK_NOT_ACTIVE|book_not_active/i, '该书籍未上架']
 ];
 
 function toChineseToast(message) {
@@ -126,13 +137,113 @@ async function loadAdmin() {
   state.admin.categories = await api.admin.getCategories();
   state.admin.orders = await api.admin.getOrders();
   state.admin.stats = await api.admin.getOrderStats();
+  state.admin.flashSales = await api.admin.getFlashSales();
   state.loading.admin = false;
+}
+
+async function loadFlashSales() {
+  state.loading.flashSales = true;
+  try {
+    const data = await api.getActiveFlashSales();
+    state.flashSales.serverTime = data.serverTime;
+    state.flashSales.items = data.items;
+    
+    const serverTime = new Date(data.serverTime).getTime();
+    const clientTime = Date.now();
+    state.flashSales.clientTimeOffset = serverTime - clientTime;
+  } catch (error) {
+    state.flashSales.items = [];
+  } finally {
+    state.loading.flashSales = false;
+  }
+}
+
+let countdownInterval = null;
+function startCountdownTimer() {
+  if (countdownInterval) clearInterval(countdownInterval);
+  
+  countdownInterval = setInterval(() => {
+    const items = state.flashSales.items || [];
+    let needsRender = false;
+    
+    for (const item of items) {
+      const oldStatus = getItemStatus(item);
+      updateItemCountdown(item);
+      const newStatus = getItemStatus(item);
+      
+      if (oldStatus !== newStatus) {
+        needsRender = true;
+      }
+    }
+    
+    updateCountdownDisplay();
+    
+    if (needsRender && state.view === 'books') {
+      safeRender();
+    }
+  }, 1000);
+}
+
+function getItemStatus(item) {
+  const now = new Date(Date.now() + (state.flashSales.clientTimeOffset || 0));
+  const startTime = new Date(item.startTime);
+  const endTime = new Date(item.endTime);
+  
+  if (now < startTime) return 'UPCOMING';
+  if (now >= startTime && now <= endTime) return 'ONGOING';
+  return 'ENDED';
+}
+
+function updateItemCountdown(item) {
+  const now = new Date(Date.now() + (state.flashSales.clientTimeOffset || 0));
+  const startTime = new Date(item.startTime);
+  const endTime = new Date(item.endTime);
+  
+  if (now < startTime) {
+    item.countdownMs = startTime.getTime() - now.getTime();
+  } else if (now <= endTime) {
+    item.countdownMs = endTime.getTime() - now.getTime();
+  } else {
+    item.countdownMs = 0;
+  }
+}
+
+function updateCountdownDisplay() {
+  const items = state.flashSales.items || [];
+  
+  for (const item of items) {
+    const countdownEl = document.querySelector(`[data-countdown="${item.id}"]`);
+    if (countdownEl) {
+      countdownEl.textContent = formatCountdownMs(item.countdownMs || 0);
+    }
+  }
+  
+  const serverTimeEl = document.getElementById('server-time-display');
+  if (serverTimeEl) {
+    const now = new Date(Date.now() + (state.flashSales.clientTimeOffset || 0));
+    serverTimeEl.textContent = now.toLocaleTimeString();
+  }
+}
+
+function formatCountdownMs(ms) {
+  if (ms <= 0) return '00:00:00';
+  const totalSeconds = Math.floor(ms / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  
+  if (days > 0) {
+    return `${days}天 ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  }
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
 const viewLoaders = {
   books: async () => {
     await loadCategories();
     await loadBooks(state.bookSearch);
+    await loadFlashSales();
   },
   cart: async () => {
     await loadCart();
@@ -251,6 +362,7 @@ bindEventHandlers({
   loadOrders,
   loadAddresses,
   loadAdmin,
+  loadFlashSales,
   safeRender,
   openModal,
   closeModal,
@@ -271,6 +383,7 @@ async function bootstrap() {
 
   updateAuthUI();
   await setView('books');
+  startCountdownTimer();
 }
 
 bootstrap();

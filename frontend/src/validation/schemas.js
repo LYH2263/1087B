@@ -89,6 +89,38 @@ export const reviewSchema = z.object({
   reviewText: z.string().min(3, '至少 3 个字').max(200, '最多 200 字')
 });
 
+export const flashSaleCreateSchema = z.object({
+  bookId: z.string().min(1, '请选择参与书籍'),
+  salePrice: z.preprocess(
+    toNumber,
+    z.number({ invalid_type_error: '请输入秒杀价' }).positive('秒杀价需大于 0')
+  ),
+  stock: z.preprocess(
+    toNumber,
+    z.number({ invalid_type_error: '请输入秒杀库存' }).int('库存需为整数').min(1, '库存至少 1 件')
+  ),
+  startTime: z.string().min(1, '请选择开始时间'),
+  endTime: z.string().min(1, '请选择结束时间'),
+  perUserLimit: z.preprocess(
+    toNumber,
+    z.number({ invalid_type_error: '请输入每人限购' }).int('限购数需为整数').min(1, '至少限购 1 件')
+  )
+}).refine((data) => {
+  const start = new Date(data.startTime);
+  const end = new Date(data.endTime);
+  return end > start;
+}, { message: '结束时间必须晚于开始时间', path: ['endTime'] });
+
+export const flashSalePurchaseSchema = z.object({
+  flashSaleId: z.string().min(1),
+  quantity: z.preprocess(
+    toNumber,
+    z.number({ invalid_type_error: '请输入数量' }).int('数量需为整数').min(1, '至少购买 1 件')
+  ),
+  addressId: z.string().min(1, '请选择收货地址'),
+  paymentMethod: z.string().min(1, '请选择支付方式')
+});
+
 export const COVER_MAX_SIZE = 2 * 1024 * 1024;
 export const COVER_TYPES = [
   'image/png',

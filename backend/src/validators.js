@@ -89,6 +89,40 @@ const reviewSchema = z.object({
   reviewText: z.string().min(3).max(200)
 });
 
+const flashSaleBaseSchema = z.object({
+  bookId: z.string().min(1, '请选择参与书籍'),
+  salePrice: z.number().positive('秒杀价必须大于0'),
+  stock: z.number().int().min(1, '秒杀库存至少1件'),
+  startTime: z.string().refine((v) => !isNaN(Date.parse(v)), '开始时间格式不正确'),
+  endTime: z.string().refine((v) => !isNaN(Date.parse(v)), '结束时间格式不正确'),
+  perUserLimit: z.number().int().min(1, '每人限购至少1件').default(1)
+});
+
+const flashSaleCreateSchema = flashSaleBaseSchema.refine((data) => new Date(data.endTime) > new Date(data.startTime), {
+  message: '结束时间必须晚于开始时间',
+  path: ['endTime']
+});
+
+const flashSaleUpdateSchema = flashSaleBaseSchema.partial().refine(
+  (data) => {
+    if (data.startTime && data.endTime) {
+      return new Date(data.endTime) > new Date(data.startTime);
+    }
+    return true;
+  },
+  {
+    message: '结束时间必须晚于开始时间',
+    path: ['endTime']
+  }
+);
+
+const flashSalePurchaseSchema = z.object({
+  flashSaleId: z.string().min(1),
+  quantity: z.number().int().min(1, '购买数量至少1件').max(99, '购买数量不能超过99件'),
+  addressId: z.string().min(1, '请选择收货地址'),
+  paymentMethod: z.enum(['WECHAT', 'ALIPAY', 'CARD', 'COD'])
+});
+
 module.exports = {
   registerSchema,
   loginSchema,
@@ -101,5 +135,8 @@ module.exports = {
   cartUpdateSchema,
   addressSchema,
   checkoutSchema,
-  reviewSchema
+  reviewSchema,
+  flashSaleCreateSchema,
+  flashSaleUpdateSchema,
+  flashSalePurchaseSchema
 };

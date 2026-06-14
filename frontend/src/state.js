@@ -15,12 +15,20 @@ export const state = {
   cart: [],
   orders: [],
   addresses: [],
+  flashSales: {
+    items: [],
+    serverTime: null,
+    clientTimeOffset: 0,
+    loading: false,
+    purchaseLoading: {}
+  },
   loading: {
     books: false,
     cart: false,
     orders: false,
     addresses: false,
-    admin: false
+    admin: false,
+    flashSales: false
   },
   admin: {
     tab: 'books',
@@ -28,7 +36,9 @@ export const state = {
     categories: [],
     orders: [],
     stats: null,
-    editingBook: null
+    editingBook: null,
+    flashSales: [],
+    editingFlashSale: null
   },
   profile: {
     editingAddress: null

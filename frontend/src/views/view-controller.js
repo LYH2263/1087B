@@ -14,6 +14,41 @@ export function createViewController({
     return `¥${Number(value).toFixed(2)}`;
   }
 
+  function formatCountdown(ms) {
+    if (ms <= 0) return '00:00:00';
+    const totalSeconds = Math.floor(ms / 1000);
+    const days = Math.floor(totalSeconds / 86400);
+    const hours = Math.floor((totalSeconds % 86400) / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    
+    if (days > 0) {
+      return `${days}天 ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    }
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  }
+
+  function getAdjustedNow() {
+    const now = Date.now();
+    return new Date(now + (state.flashSales.clientTimeOffset || 0));
+  }
+
+  function getFlashSaleStatus(flashSale) {
+    const now = getAdjustedNow();
+    const startTime = new Date(flashSale.startTime);
+    const endTime = new Date(flashSale.endTime);
+    
+    if (now < startTime) return { status: 'UPCOMING', label: '即将开始', countdownTo: startTime };
+    if (now >= startTime && now <= endTime) return { status: 'ONGOING', label: '立即抢购', countdownTo: endTime };
+    return { status: 'ENDED', label: '已结束', countdownTo: null };
+  }
+
+  function getFlashSaleCountdownMs(flashSale) {
+    const statusInfo = getFlashSaleStatus(flashSale);
+    if (!statusInfo.countdownTo) return 0;
+    return statusInfo.countdownTo.getTime() - getAdjustedNow().getTime();
+  }
+
   function formatStatus(status) {
     const map = {
       PENDING_PAYMENT: '待支付',
@@ -69,6 +104,113 @@ export function createViewController({
       .join('')}</div>`;
   }
 
+  function renderFlashSaleCard(flashSale) {
+    const statusInfo = getFlashSaleStatus(flashSale);
+    const countdownMs = getFlashSaleCountdownMs(flashSale);
+    const remainingStock = flashSale.stock - flashSale.soldCount;
+    const stockPercent = Math.max(0, Math.min(100, (remainingStock / flashSale.stock) * 100));
+    const isSoldOut = remainingStock <= 0;
+    
+    let buttonClass = 'btn-primary';
+    let buttonDisabled = '';
+    let buttonLabel = statusInfo.label;
+    
+    if (statusInfo.status === 'UPCOMING') {
+      buttonClass = 'btn-outline';
+      buttonDisabled = 'disabled';
+    } else if (statusInfo.status === 'ENDED' || isSoldOut) {
+      buttonClass = 'btn-outline opacity-60';
+      buttonDisabled = 'disabled';
+      buttonLabel = isSoldOut ? '已售罄' : '已结束';
+    }
+    
+    const statusBadge = statusInfo.status === 'ONGOING' 
+      ? '<span class="badge badge-active">🔥 正在秒杀</span>'
+      : statusInfo.status === 'UPCOMING'
+        ? '<span class="badge">⏰ 即将开始</span>'
+        : '<span class="badge badge-inactive">已结束</span>';
+
+    const book = flashSale.book || {};
+    const loading = state.flashSales.purchaseLoading[flashSale.id];
+
+    return `
+      <div class="card hover-card p-4 flex flex-col gap-3 relative overflow-hidden" data-flash-sale-id="${flashSale.id}">
+        <div class="absolute top-2 right-2 z-10">
+          ${statusBadge}
+        </div>
+        <div class="flex gap-4">
+          <div class="w-28 h-36 rounded-xl overflow-hidden bg-slate-100 flex-shrink-0">
+            <img src="${book.coverUrl || '/covers/cover-1.svg'}" alt="${book.title || ''}" class="w-full h-full object-contain" />
+          </div>
+          <div class="flex-1 min-w-0">
+            <h3 class="font-semibold text-base truncate">${book.title || ''}</h3>
+            <p class="text-xs text-slate-500 truncate">${book.author || ''}</p>
+            <div class="mt-2 flex items-baseline gap-2">
+              <span class="text-2xl font-bold text-red-500">${formatCurrency(flashSale.salePrice)}</span>
+              <span class="text-sm text-slate-400 line-through">${formatCurrency(book.originalPrice || flashSale.originalPrice || 0)}</span>
+            </div>
+            <div class="mt-2">
+              <div class="flex justify-between text-xs text-slate-500 mb-1">
+                <span>剩余 ${remainingStock} 件</span>
+                <span>已抢 ${flashSale.soldCount} 件</span>
+              </div>
+              <div class="h-2 bg-slate-200 rounded-full overflow-hidden">
+                <div class="h-full bg-gradient-to-r from-red-400 to-red-500 rounded-full transition-all duration-500" style="width: ${stockPercent}%"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="bg-slate-50 rounded-lg p-3">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-slate-500">
+                ${statusInfo.status === 'UPCOMING' ? '距开始' : '距结束'}
+              </span>
+              <span class="font-mono text-sm font-semibold text-slate-800" data-countdown="${flashSale.id}">
+                ${formatCountdown(countdownMs)}
+              </span>
+            </div>
+            <button class="${buttonClass} text-sm" data-action="purchase-flash-sale" data-id="${flashSale.id}" ${buttonDisabled} ${loading ? 'disabled' : ''}>
+              ${loading ? '抢购中...' : buttonLabel}
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderFlashSaleSection() {
+    const items = state.flashSales.items || [];
+    if (items.length === 0) return '';
+
+    const ongoing = items.filter(item => getFlashSaleStatus(item).status === 'ONGOING');
+    const upcoming = items.filter(item => getFlashSaleStatus(item).status === 'UPCOMING');
+    const displayItems = [...ongoing, ...upcoming].slice(0, 5);
+
+    if (displayItems.length === 0) return '';
+
+    const cards = displayItems.map(item => renderFlashSaleCard(item)).join('');
+
+    return `
+      <div class="card p-5 bg-gradient-to-br from-red-50 to-orange-50 border-red-100">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center gap-2">
+            <span class="text-2xl">⚡</span>
+            <h3 class="text-xl font-bold text-slate-800">限时秒杀</h3>
+            <span class="text-xs text-slate-500">先到先得</span>
+          </div>
+          <div class="text-xs text-slate-500">
+            服务器时间: <span class="font-mono" id="server-time-display">${state.flashSales.serverTime ? new Date(state.flashSales.serverTime).toLocaleTimeString() : '--:--:--'}</span>
+          </div>
+        </div>
+        ${state.loading.flashSales 
+          ? `<div class="animate-pulse h-48 bg-white rounded-xl"></div>`
+          : `<div class="grid md:grid-cols-2 xl:grid-cols-3 gap-4">${cards}</div>`
+        }
+      </div>
+    `;
+  }
+
   function renderBooks() {
     const search = state.bookSearch;
     const categoryOptions = state.categories
@@ -107,7 +249,10 @@ export function createViewController({
       </div>
     `;
 
+    const flashSaleSection = renderFlashSaleSection();
+
     viewContent.innerHTML = `
+      ${flashSaleSection}
       <div class="card p-5">
         <form class="grid md:grid-cols-6 gap-3" data-form="book-search" novalidate>
           <input class="input md:col-span-2" name="title" placeholder="书名" value="${escapeHtmlAttr(search.title)}" />
@@ -385,6 +530,7 @@ export function createViewController({
         <button class="btn-outline" data-action="admin-tab" data-tab="books">书籍管理</button>
         <button class="btn-outline" data-action="admin-tab" data-tab="categories">分类管理</button>
         <button class="btn-outline" data-action="admin-tab" data-tab="orders">订单管理</button>
+        <button class="btn-outline" data-action="admin-tab" data-tab="flash-sales">秒杀管理</button>
       </div>
     `;
 
@@ -542,6 +688,118 @@ export function createViewController({
           </div>
         </div>
         <div class="grid lg:grid-cols-2 gap-4">${orderCards || '<div class="text-slate-500">暂无订单</div>'}</div>
+      `;
+    }
+
+    if (state.admin.tab === 'flash-sales') {
+      const bookOptions = state.admin.books
+        .filter(book => book.status === 'ACTIVE')
+        .map(
+          (book) =>
+            `<option value="${book.id}" ${state.admin.editingFlashSale?.bookId === book.id ? 'selected' : ''}>${book.title} - ${formatCurrency(book.price)}</option>`
+        )
+        .join('');
+
+      const editing = state.admin.editingFlashSale;
+      const now = new Date();
+      const defaultStartTime = editing?.startTime 
+        ? new Date(editing.startTime).toISOString().slice(0, 16)
+        : new Date(now.getTime() + 5 * 60000).toISOString().slice(0, 16);
+      const defaultEndTime = editing?.endTime
+        ? new Date(editing.endTime).toISOString().slice(0, 16)
+        : new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString().slice(0, 16);
+
+      const flashSaleRows = state.admin.flashSales
+        .map(
+          (fs) => {
+            const statusInfo = getFlashSaleStatus(fs);
+            const statusBadge = statusInfo.status === 'ONGOING' 
+              ? '<span class="badge badge-active">进行中</span>'
+              : statusInfo.status === 'UPCOMING'
+                ? '<span class="badge">即将开始</span>'
+                : '<span class="badge badge-inactive">已结束</span>';
+            
+            return `
+        <div class="border border-slate-200 rounded-xl p-4 flex flex-col gap-3 hover-card">
+          <div class="flex justify-between items-start">
+            <div>
+              <h4 class="font-semibold">${fs.book?.title || '未知书籍'}</h4>
+              <p class="text-sm text-slate-500">${fs.book?.author || ''}</p>
+            </div>
+            ${statusBadge}
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+            <div>
+              <p class="text-xs text-slate-400">秒杀价</p>
+              <p class="font-semibold text-red-500">${formatCurrency(fs.salePrice)}</p>
+            </div>
+            <div>
+              <p class="text-xs text-slate-400">原价</p>
+              <p class="text-slate-500 line-through">${formatCurrency(fs.originalPrice || 0)}</p>
+            </div>
+            <div>
+              <p class="text-xs text-slate-400">库存/已售</p>
+              <p>${fs.remainingStock || (fs.stock - fs.soldCount)} / ${fs.soldCount}</p>
+            </div>
+            <div>
+              <p class="text-xs text-slate-400">每人限购</p>
+              <p>${fs.perUserLimit} 件</p>
+            </div>
+          </div>
+          <div class="text-xs text-slate-500">
+            <span>开始：${new Date(fs.startTime).toLocaleString()}</span>
+            <span class="mx-2">|</span>
+            <span>结束：${new Date(fs.endTime).toLocaleString()}</span>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <button class="btn-outline" data-action="edit-flash-sale" data-id="${fs.id}">编辑</button>
+            ${fs.soldCount === 0 ? `<button class="btn-outline" data-action="delete-flash-sale" data-id="${fs.id}">删除</button>` : ''}
+          </div>
+        </div>
+      `;
+          }
+        )
+        .join('');
+
+      content = `
+        <div class="card p-6 space-y-4">
+          <h3 class="text-lg font-semibold">${editing ? '编辑秒杀场次' : '新增秒杀场次'}</h3>
+          <form data-form="admin-flash-sale" class="grid md:grid-cols-2 gap-3" novalidate>
+            <input type="hidden" name="flashSaleId" value="${editing?.id || ''}" />
+            <div class="space-y-1 md:col-span-2">
+              <label class="text-sm text-slate-600">参与书籍</label>
+              <select class="input" name="bookId" required>
+                <option value="">请选择书籍</option>
+                ${bookOptions}
+              </select>
+            </div>
+            <div class="space-y-1">
+              <label class="text-sm text-slate-600">秒杀价</label>
+              <input class="input" name="salePrice" type="number" step="0.01" placeholder="秒杀价格" value="${editing?.salePrice || ''}" required />
+            </div>
+            <div class="space-y-1">
+              <label class="text-sm text-slate-600">秒杀库存</label>
+              <input class="input" name="stock" type="number" placeholder="秒杀库存数量" value="${editing?.stock || ''}" required />
+            </div>
+            <div class="space-y-1">
+              <label class="text-sm text-slate-600">开始时间</label>
+              <input class="input" name="startTime" type="datetime-local" value="${defaultStartTime}" required />
+            </div>
+            <div class="space-y-1">
+              <label class="text-sm text-slate-600">结束时间</label>
+              <input class="input" name="endTime" type="datetime-local" value="${defaultEndTime}" required />
+            </div>
+            <div class="space-y-1">
+              <label class="text-sm text-slate-600">每人限购</label>
+              <input class="input" name="perUserLimit" type="number" placeholder="每人限购数量" value="${editing?.perUserLimit || 1}" required />
+            </div>
+            <div class="md:col-span-2 flex justify-end gap-2">
+              ${editing ? '<button class="btn-outline" type="button" data-action="cancel-edit-flash-sale">取消编辑</button>' : ''}
+              <button class="btn-primary" type="submit">${editing ? '保存修改' : '创建秒杀'}</button>
+            </div>
+          </form>
+        </div>
+        <div class="grid lg:grid-cols-2 gap-4">${flashSaleRows || '<div class="text-slate-500">暂无秒杀场次</div>'}</div>
       `;
     }
 

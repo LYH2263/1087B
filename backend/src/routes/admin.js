@@ -5,7 +5,7 @@ const multer = require('multer');
 const prisma = require('../db');
 const asyncHandler = require('../utils/asyncHandler');
 const { ApiError } = require('../errors');
-const { bookSchema, bookUpdateSchema, categorySchema } = require('../validators');
+const { bookSchema, bookUpdateSchema, categorySchema, flashSaleCreateSchema, flashSaleUpdateSchema } = require('../validators');
 const { toCents, fromCents } = require('../utils/money');
 
 const router = express.Router();
@@ -348,6 +348,226 @@ router.post('/orders/:id/refund', asyncHandler(async (req, res) => {
   });
 
   res.json({ message: 'order refunded' });
+}));
+
+function mapFlashSale(flashSale) {
+  const now = new Date();
+  const startTime = new Date(flashSale.startTime);
+  const endTime = new Date(flashSale.endTime);
+
+  let status = 'UPCOMING';
+  if (now >= startTime && now <= endTime) {
+    status = 'ONGOING';
+  } else if (now > endTime) {
+    status = 'ENDED';
+  }
+
+  return {
+    id: flashSale.id,
+    bookId: flashSale.bookId,
+    book: flashSale.book ? {
+      id: flashSale.book.id,
+      title: flashSale.book.title,
+      author: flashSale.book.author,
+      coverUrl: flashSale.book.coverUrl
+    } : null,
+    salePrice: fromCents(flashSale.salePriceCents),
+    originalPrice: flashSale.book ? fromCents(flashSale.book.priceCents) : null,
+    stock: flashSale.stock,
+    soldCount: flashSale.soldCount,
+    remainingStock: flashSale.stock - flashSale.soldCount,
+    startTime: flashSale.startTime,
+    endTime: flashSale.endTime,
+    perUserLimit: flashSale.perUserLimit,
+    status,
+    createdAt: flashSale.createdAt
+  };
+}
+
+router.get('/flash-sales', asyncHandler(async (req, res) => {
+  const { status } = req.query;
+  const now = new Date();
+
+  let where = {};
+  if (status === 'UPCOMING') {
+    where = { startTime: { gt: now } };
+  } else if (status === 'ONGOING') {
+    where = { startTime: { lte: now }, endTime: { gte: now } };
+  } else if (status === 'ENDED') {
+    where = { endTime: { lt: now } };
+  }
+
+  const flashSales = await prisma.flashSale.findMany({
+    where,
+    include: { book: true },
+    orderBy: { createdAt: 'desc' }
+  });
+
+  res.json(flashSales.map(mapFlashSale));
+}));
+
+router.get('/flash-sales/:id', asyncHandler(async (req, res) => {
+  const flashSale = await prisma.flashSale.findUnique({
+    where: { id: req.params.id },
+    include: {
+      book: true,
+      orders: {
+        include: {
+          user: {
+            select: { id: true, username: true, email: true }
+          },
+          order: {
+            select: { id: true, status: true }
+          }
+        },
+        orderBy: { createdAt: 'desc' }
+      }
+    }
+  });
+
+  if (!flashSale) {
+    throw new ApiError(404, 'FLASH_SALE_NOT_FOUND');
+  }
+
+  const result = mapFlashSale(flashSale);
+  result.orders = flashSale.orders.map(order => ({
+    id: order.id,
+    userId: order.userId,
+    username: order.user?.username,
+    email: order.user?.email,
+    quantity: order.quantity,
+    orderId: order.orderId,
+    orderStatus: order.order?.status,
+    createdAt: order.createdAt
+  }));
+
+  res.json(result);
+}));
+
+router.post('/flash-sales', asyncHandler(async (req, res) => {
+  const payload = flashSaleCreateSchema.parse(req.body);
+
+  const book = await prisma.book.findUnique({
+    where: { id: payload.bookId }
+  });
+
+  if (!book) {
+    throw new ApiError(404, 'BOOK_NOT_FOUND');
+  }
+
+  if (book.status !== 'ACTIVE') {
+    throw new ApiError(400, 'BOOK_NOT_ACTIVE');
+  }
+
+  const salePriceCents = toCents(payload.salePrice);
+  if (salePriceCents >= book.priceCents) {
+    throw new ApiError(400, 'FLASH_SALE_PRICE_TOO_HIGH');
+  }
+
+  const overlapping = await prisma.flashSale.findFirst({
+    where: {
+      bookId: payload.bookId,
+      endTime: { gt: new Date(payload.startTime) },
+      startTime: { lt: new Date(payload.endTime) }
+    }
+  });
+
+  if (overlapping) {
+    throw new ApiError(400, 'FLASH_SALE_OVERLAPPING');
+  }
+
+  const flashSale = await prisma.flashSale.create({
+    data: {
+      bookId: payload.bookId,
+      salePriceCents,
+      stock: payload.stock,
+      startTime: new Date(payload.startTime),
+      endTime: new Date(payload.endTime),
+      perUserLimit: payload.perUserLimit
+    },
+    include: { book: true }
+  });
+
+  res.status(201).json(mapFlashSale(flashSale));
+}));
+
+router.put('/flash-sales/:id', asyncHandler(async (req, res) => {
+  const payload = flashSaleUpdateSchema.parse(req.body);
+
+  const existing = await prisma.flashSale.findUnique({
+    where: { id: req.params.id },
+    include: { book: true }
+  });
+
+  if (!existing) {
+    throw new ApiError(404, 'FLASH_SALE_NOT_FOUND');
+  }
+
+  const data = {};
+
+  if (payload.bookId !== undefined && payload.bookId !== existing.bookId) {
+    const book = await prisma.book.findUnique({ where: { id: payload.bookId } });
+    if (!book || book.status !== 'ACTIVE') {
+      throw new ApiError(400, 'BOOK_NOT_ACTIVE');
+    }
+    data.bookId = payload.bookId;
+  }
+
+  if (payload.salePrice !== undefined) {
+    const salePriceCents = toCents(payload.salePrice);
+    const bookPrice = existing.book.priceCents;
+    if (salePriceCents >= bookPrice) {
+      throw new ApiError(400, 'FLASH_SALE_PRICE_TOO_HIGH');
+    }
+    data.salePriceCents = salePriceCents;
+  }
+
+  if (payload.stock !== undefined) {
+    if (payload.stock < existing.soldCount) {
+      throw new ApiError(400, 'FLASH_SALE_STOCK_TOO_LOW');
+    }
+    data.stock = payload.stock;
+  }
+
+  if (payload.startTime !== undefined) {
+    data.startTime = new Date(payload.startTime);
+  }
+
+  if (payload.endTime !== undefined) {
+    data.endTime = new Date(payload.endTime);
+  }
+
+  if (payload.perUserLimit !== undefined) {
+    data.perUserLimit = payload.perUserLimit;
+  }
+
+  const flashSale = await prisma.flashSale.update({
+    where: { id: req.params.id },
+    data,
+    include: { book: true }
+  });
+
+  res.json(mapFlashSale(flashSale));
+}));
+
+router.delete('/flash-sales/:id', asyncHandler(async (req, res) => {
+  const flashSale = await prisma.flashSale.findUnique({
+    where: { id: req.params.id }
+  });
+
+  if (!flashSale) {
+    throw new ApiError(404, 'FLASH_SALE_NOT_FOUND');
+  }
+
+  if (flashSale.soldCount > 0) {
+    throw new ApiError(400, 'FLASH_SALE_HAS_ORDERS');
+  }
+
+  await prisma.flashSale.delete({
+    where: { id: req.params.id }
+  });
+
+  res.json({ message: 'flash sale deleted' });
 }));
 
 module.exports = router;
