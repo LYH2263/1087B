@@ -55,7 +55,12 @@ const toastMap = [
   [/INVOICE_ALREADY_EXISTS|invoice_already_exists/i, '该订单已有有效发票申请'],
   [/INVOICE_NOT_PENDING|invoice_not_pending/i, '该发票状态不支持此操作'],
   [/ORDER_REFUNDED_CANNOT_INVOICE|order_refunded_cannot_invoice/i, '退款订单不可开具发票'],
-  [/ORDER_NOT_PAID|order_not_paid/i, '订单未支付，不能申请发票']
+  [/ORDER_NOT_PAID|order_not_paid/i, '订单未支付，不能申请发票'],
+  [/BOOK_LIST_NOT_FOUND|book_list_not_found/i, '书单不存在'],
+  [/BOOK_ALREADY_IN_LIST|book_already_in_list/i, '该书已在书单中'],
+  [/BOOK_NOT_IN_LIST|book_not_in_list/i, '该书不在书单中'],
+  [/BOOKS_NOT_IN_LIST|books_not_in_list/i, '部分书籍不在书单中'],
+  [/BOOK_LIST_NOT_PUBLISHED|book_list_not_published/i, '书单未上线']
 ];
 
 function toChineseToast(message) {
@@ -158,14 +163,15 @@ async function loadAddresses() {
 async function loadAdmin() {
   if (!state.user || state.user.role !== 'ADMIN') return;
   state.loading.admin = true;
-  const [books, categories, orders, stats, flashSales, invoices, invoiceStats] = await Promise.all([
+  const [books, categories, orders, stats, flashSales, invoices, invoiceStats, bookLists] = await Promise.all([
     api.admin.getBooks(),
     api.admin.getCategories(),
     api.admin.getOrders(),
     api.admin.getOrderStats(),
     api.admin.getFlashSales(),
     api.admin.getInvoices(),
-    api.admin.getInvoiceStats()
+    api.admin.getInvoiceStats(),
+    api.admin.getBookLists()
   ]);
   state.admin.books = books;
   state.admin.categories = categories;
@@ -174,7 +180,24 @@ async function loadAdmin() {
   state.admin.flashSales = flashSales;
   state.admin.invoices = invoices;
   state.admin.invoiceStats = invoiceStats;
+  state.admin.bookLists = bookLists;
   state.loading.admin = false;
+}
+
+async function loadBookLists() {
+  state.loading.bookLists = true;
+  safeRender();
+  state.bookLists = await api.getBookLists();
+  state.loading.bookLists = false;
+  safeRender();
+}
+
+async function loadBookListDetail(id) {
+  state.loading.bookListDetail = true;
+  safeRender();
+  state.currentBookList = await api.getBookList(id);
+  state.loading.bookListDetail = false;
+  safeRender();
 }
 
 async function loadFlashSales() {
@@ -281,6 +304,8 @@ const viewLoaders = {
     await loadBooks(state.bookSearch);
     await loadFlashSales();
   },
+  'book-lists': loadBookLists,
+  'book-list-detail': async () => {},
   cart: async () => {
     await loadCart();
     await loadAddresses();
@@ -401,6 +426,8 @@ bindEventHandlers({
   loadAddresses,
   loadAdmin,
   loadFlashSales,
+  loadBookLists,
+  loadBookListDetail,
   safeRender,
   openModal,
   closeModal,

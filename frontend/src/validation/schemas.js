@@ -151,3 +151,26 @@ export const COVER_TYPES = [
   'image/gif',
   'image/svg+xml'
 ];
+
+export const adminBookListSchema = z.object({
+  title: z.string().min(1, '请输入书单标题').max(100, '标题不能超过 100 个字符'),
+  coverUrl: z
+    .string()
+    .min(1, '请上传封面')
+    .refine(
+      (value) =>
+        value.startsWith('/uploads/') ||
+        value.startsWith('/covers/') ||
+        /^https?:\/\//.test(value),
+      '封面地址不合法'
+    ),
+  description: z.string().min(1, '请输入书单简介').max(500, '简介不能超过 500 个字符'),
+  sortOrder: z.preprocess(
+    toNumber,
+    z.number({ invalid_type_error: '请输入排序值' }).int('排序值需为整数').min(0, '排序值不能为负数')
+  )
+});
+
+export const bookListAddBookSchema = z.object({
+  bookId: z.string().min(1, '请选择书籍')
+});

@@ -13,6 +13,8 @@ import {
   flashSalePurchaseSchema,
   invoiceApplySchema,
   invoiceRejectSchema,
+  adminBookListSchema,
+  bookListAddBookSchema,
   COVER_MAX_SIZE,
   COVER_TYPES
 } from '../validation/schemas.js';
@@ -146,6 +148,8 @@ export function bindEventHandlers({
   loadAddresses,
   loadAdmin,
   loadFlashSales,
+  loadBookLists,
+  loadBookListDetail,
   safeRender,
   openModal,
   closeModal,
@@ -452,6 +456,52 @@ export function bindEventHandlers({
           submitBtn.textContent = originalText || '立即抢购';
         }
       }
+    },
+    'admin-book-list': async (form) => {
+      const data = getFormData(form);
+      const coverFile = data.coverFile instanceof File && data.coverFile.size > 0 ? data.coverFile : null;
+      let coverUrl = state.admin.editingBookList?.coverUrl || data.coverUrl || '';
+      
+      if (!validateCoverFile(coverFile, form)) {
+        return;
+      }
+      
+      if (coverFile) {
+        const upload = await api.admin.uploadCover(coverFile);
+        coverUrl = upload.url;
+      }
+      
+      const payload = adminBookListSchema.parse({
+        title: data.title,
+        coverUrl,
+        description: data.description,
+        sortOrder: data.sortOrder
+      });
+      
+      if (data.bookListId) {
+        await api.admin.updateBookList(data.bookListId, payload);
+        state.admin.editingBookList = null;
+        showToast('书单已更新', 'success');
+      } else {
+        await api.admin.createBookList(payload);
+        showToast('书单已创建', 'success');
+      }
+      
+      await loadAdmin();
+      safeRender();
+      form.reset();
+    },
+    'admin-add-book-to-list': async (form) => {
+      const data = getFormData(form);
+      const parsed = bookListAddBookSchema.parse({
+        bookId: data.bookId
+      });
+      
+      const updated = await api.admin.addBookToList(data.bookListId, parsed);
+      state.admin.selectedBookList = updated;
+      showToast('书籍已添加', 'success');
+      await loadAdmin();
+      safeRender();
     }
   };
 
@@ -842,6 +892,137 @@ export function bindEventHandlers({
           <div class="bg-teal-50 border border-teal-100 rounded-xl p-4 text-sm text-teal-700 whitespace-pre-wrap">${escapeHtml(invoice.invoiceContent || '')}</div>
         </div>
       `);
+    },
+    'view-book-list': async (target) => {
+      const id = target.dataset.id;
+      await loadBookListDetail(id);
+      state.view = 'book-list-detail';
+      safeRender();
+    },
+    'back-to-book-lists': async () => {
+      state.currentBookList = null;
+      state.admin.editingBookList = null;
+      state.admin.selectedBookList = null;
+      if (state.admin.tab === 'book-lists') {
+        safeRender();
+      } else {
+        state.view = 'book-lists';
+        await loadBookLists();
+        safeRender();
+      }
+    },
+    'create-book-list': async () => {
+      state.admin.editingBookList = { title: '', coverUrl: '', description: '', sortOrder: 0 };
+      state.admin.selectedBookList = null;
+      safeRender();
+    },
+    'edit-book-list': async (target) => {
+      const id = target.dataset.id;
+      const list = state.admin.bookLists?.find(item => item.id === id) || state.admin.selectedBookList;
+      if (list) {
+        state.admin.editingBookList = { ...list };
+        state.admin.selectedBookList = null;
+      }
+      safeRender();
+    },
+    'cancel-edit-book-list': async () => {
+      state.admin.editingBookList = null;
+      safeRender();
+    },
+    'manage-book-list': async (target) => {
+      const id = target.dataset.id;
+      const list = state.admin.bookLists?.find(item => item.id === id);
+      if (list) {
+        const fullList = await api.admin.getBookList(id);
+        state.admin.selectedBookList = fullList;
+        state.admin.editingBookList = null;
+      }
+      safeRender();
+    },
+    'delete-book-list': async (target) => {
+      if (!confirm('确定要删除这个书单吗？删除后无法恢复。')) {
+        return;
+      }
+      await api.admin.deleteBookList(target.dataset.id);
+      state.admin.selectedBookList = null;
+      state.admin.editingBookList = null;
+      showToast('书单已删除', 'success');
+      await loadAdmin();
+      safeRender();
+    },
+    'publish-book-list': async (target) => {
+      if (!confirm('确定要上线这个书单吗？上线后用户端将可见。')) {
+        return;
+      }
+      const updated = await api.admin.publishBookList(target.dataset.id);
+      if (state.admin.selectedBookList?.id === target.dataset.id) {
+        state.admin.selectedBookList = updated;
+      }
+      showToast('书单已上线', 'success');
+      await loadAdmin();
+      safeRender();
+    },
+    'unpublish-book-list': async (target) => {
+      if (!confirm('确定要下线这个书单吗？下线后用户端将不可见。')) {
+        return;
+      }
+      const updated = await api.admin.unpublishBookList(target.dataset.id);
+      if (state.admin.selectedBookList?.id === target.dataset.id) {
+        state.admin.selectedBookList = updated;
+      }
+      showToast('书单已下线', 'success');
+      await loadAdmin();
+      safeRender();
+    },
+    'remove-book-from-list': async (target) => {
+      if (!confirm('确定要从书单中移除这本书吗？')) {
+        return;
+      }
+      const bookId = target.dataset.id;
+      const listId = state.admin.selectedBookList?.id;
+      if (!listId) return;
+      
+      const updated = await api.admin.removeBookFromList(listId, bookId);
+      state.admin.selectedBookList = updated;
+      showToast('书籍已移除', 'success');
+      await loadAdmin();
+      safeRender();
+    },
+    'move-book-up': async (target) => {
+      const bookId = target.dataset.id;
+      const list = state.admin.selectedBookList;
+      if (!list) return;
+      
+      const items = list.items;
+      const index = items.findIndex(item => item.bookId === bookId);
+      if (index <= 0) return;
+      
+      const newOrder = [...items];
+      [newOrder[index - 1], newOrder[index]] = [newOrder[index], newOrder[index - 1]];
+      
+      const bookIds = newOrder.map(item => item.bookId);
+      const updated = await api.admin.reorderBooksInList(list.id, { bookIds });
+      state.admin.selectedBookList = updated;
+      await loadAdmin();
+      safeRender();
+    },
+    'move-book-down': async (target) => {
+      const bookId = target.dataset.id;
+      const list = state.admin.selectedBookList;
+      if (!list) return;
+      
+      const items = list.items;
+      const index = items.findIndex(item => item.bookId === bookId);
+      if (index < 0 || index >= items.length - 1) return;
+      
+      const newOrder = [...items];
+      [newOrder[index], newOrder[index + 1]] = [newOrder[index + 1], newOrder[index]];
+      
+      const bookIds = newOrder.map(item => item.bookId);
+      const updated = await api.admin.reorderBooksInList(list.id, { bookIds });
+      state.admin.selectedBookList = updated;
+      await loadAdmin();
+      safeRender();
     }
   };
   

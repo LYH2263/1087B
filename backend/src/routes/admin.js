@@ -5,7 +5,7 @@ const multer = require('multer');
 const prisma = require('../db');
 const asyncHandler = require('../utils/asyncHandler');
 const { ApiError } = require('../errors');
-const { bookSchema, bookUpdateSchema, categorySchema, flashSaleCreateSchema, flashSaleUpdateSchema, invoiceRejectSchema } = require('../validators');
+const { bookSchema, bookUpdateSchema, categorySchema, flashSaleCreateSchema, flashSaleUpdateSchema, invoiceRejectSchema, bookListCreateSchema, bookListUpdateSchema, bookListAddBookSchema, bookListReorderBooksSchema } = require('../validators');
 const { toCents, fromCents } = require('../utils/money');
 
 const router = express.Router();
@@ -775,6 +775,331 @@ router.post('/invoices/:id/reject', asyncHandler(async (req, res) => {
   });
 
   res.json(mapAdminInvoice(updated));
+}));
+
+function mapBookList(bookList) {
+  return {
+    id: bookList.id,
+    title: bookList.title,
+    coverUrl: bookList.coverUrl,
+    description: bookList.description,
+    sortOrder: bookList.sortOrder,
+    status: bookList.status,
+    createdAt: bookList.createdAt,
+    updatedAt: bookList.updatedAt,
+    itemCount: bookList.items ? bookList.items.length : 0,
+    items: bookList.items ? bookList.items.map(item => ({
+      id: item.id,
+      bookId: item.bookId,
+      sortOrder: item.sortOrder,
+      book: item.book ? {
+        id: item.book.id,
+        title: item.book.title,
+        author: item.book.author,
+        coverUrl: item.book.coverUrl,
+        price: fromCents(item.book.priceCents),
+        status: item.book.status
+      } : null
+    })) : []
+  };
+}
+
+router.get('/book-lists', asyncHandler(async (req, res) => {
+  const { status } = req.query;
+  const where = {};
+  if (status) {
+    where.status = String(status);
+  }
+
+  const bookLists = await prisma.bookList.findMany({
+    where,
+    include: {
+      items: {
+        include: { book: true },
+        orderBy: { sortOrder: 'asc' }
+      }
+    },
+    orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }]
+  });
+
+  res.json(bookLists.map(mapBookList));
+}));
+
+router.get('/book-lists/:id', asyncHandler(async (req, res) => {
+  const bookList = await prisma.bookList.findUnique({
+    where: { id: req.params.id },
+    include: {
+      items: {
+        include: { book: true },
+        orderBy: { sortOrder: 'asc' }
+      }
+    }
+  });
+
+  if (!bookList) {
+    throw new ApiError(404, 'BOOK_LIST_NOT_FOUND');
+  }
+
+  res.json(mapBookList(bookList));
+}));
+
+router.post('/book-lists', asyncHandler(async (req, res) => {
+  const payload = bookListCreateSchema.parse(req.body);
+
+  const bookList = await prisma.bookList.create({
+    data: {
+      title: payload.title,
+      coverUrl: payload.coverUrl,
+      description: payload.description,
+      sortOrder: payload.sortOrder
+    },
+    include: {
+      items: {
+        include: { book: true },
+        orderBy: { sortOrder: 'asc' }
+      }
+    }
+  });
+
+  res.status(201).json(mapBookList(bookList));
+}));
+
+router.put('/book-lists/:id', asyncHandler(async (req, res) => {
+  const payload = bookListUpdateSchema.parse(req.body);
+
+  const existing = await prisma.bookList.findUnique({
+    where: { id: req.params.id }
+  });
+
+  if (!existing) {
+    throw new ApiError(404, 'BOOK_LIST_NOT_FOUND');
+  }
+
+  const bookList = await prisma.bookList.update({
+    where: { id: req.params.id },
+    data: payload,
+    include: {
+      items: {
+        include: { book: true },
+        orderBy: { sortOrder: 'asc' }
+      }
+    }
+  });
+
+  res.json(mapBookList(bookList));
+}));
+
+router.delete('/book-lists/:id', asyncHandler(async (req, res) => {
+  const bookList = await prisma.bookList.findUnique({
+    where: { id: req.params.id }
+  });
+
+  if (!bookList) {
+    throw new ApiError(404, 'BOOK_LIST_NOT_FOUND');
+  }
+
+  await prisma.bookList.delete({
+    where: { id: req.params.id }
+  });
+
+  res.json({ message: 'book list deleted', id: bookList.id });
+}));
+
+router.post('/book-lists/:id/publish', asyncHandler(async (req, res) => {
+  const bookList = await prisma.bookList.findUnique({
+    where: { id: req.params.id },
+    include: {
+      items: {
+        include: { book: true },
+        orderBy: { sortOrder: 'asc' }
+      }
+    }
+  });
+
+  if (!bookList) {
+    throw new ApiError(404, 'BOOK_LIST_NOT_FOUND');
+  }
+
+  const updated = await prisma.bookList.update({
+    where: { id: req.params.id },
+    data: { status: 'PUBLISHED' },
+    include: {
+      items: {
+        include: { book: true },
+        orderBy: { sortOrder: 'asc' }
+      }
+    }
+  });
+
+  res.json(mapBookList(updated));
+}));
+
+router.post('/book-lists/:id/unpublish', asyncHandler(async (req, res) => {
+  const bookList = await prisma.bookList.findUnique({
+    where: { id: req.params.id },
+    include: {
+      items: {
+        include: { book: true },
+        orderBy: { sortOrder: 'asc' }
+      }
+    }
+  });
+
+  if (!bookList) {
+    throw new ApiError(404, 'BOOK_LIST_NOT_FOUND');
+  }
+
+  const updated = await prisma.bookList.update({
+    where: { id: req.params.id },
+    data: { status: 'DRAFT' },
+    include: {
+      items: {
+        include: { book: true },
+        orderBy: { sortOrder: 'asc' }
+      }
+    }
+  });
+
+  res.json(mapBookList(updated));
+}));
+
+router.post('/book-lists/:id/books', asyncHandler(async (req, res) => {
+  const payload = bookListAddBookSchema.parse(req.body);
+
+  const bookList = await prisma.bookList.findUnique({
+    where: { id: req.params.id }
+  });
+
+  if (!bookList) {
+    throw new ApiError(404, 'BOOK_LIST_NOT_FOUND');
+  }
+
+  const book = await prisma.book.findUnique({
+    where: { id: payload.bookId }
+  });
+
+  if (!book) {
+    throw new ApiError(404, 'BOOK_NOT_FOUND');
+  }
+
+  const maxSortOrder = await prisma.bookListItem.aggregate({
+    where: { bookListId: req.params.id },
+    _max: { sortOrder: true }
+  });
+
+  const nextSortOrder = (maxSortOrder._max.sortOrder || -1) + 1;
+
+  try {
+    await prisma.bookListItem.create({
+      data: {
+        bookListId: req.params.id,
+        bookId: payload.bookId,
+        sortOrder: nextSortOrder
+      }
+    });
+  } catch (error) {
+    if (error.code === 'P2002') {
+      throw new ApiError(400, 'BOOK_ALREADY_IN_LIST');
+    }
+    throw error;
+  }
+
+  const updated = await prisma.bookList.findUnique({
+    where: { id: req.params.id },
+    include: {
+      items: {
+        include: { book: true },
+        orderBy: { sortOrder: 'asc' }
+      }
+    }
+  });
+
+  res.json(mapBookList(updated));
+}));
+
+router.delete('/book-lists/:id/books/:bookId', asyncHandler(async (req, res) => {
+  const bookList = await prisma.bookList.findUnique({
+    where: { id: req.params.id }
+  });
+
+  if (!bookList) {
+    throw new ApiError(404, 'BOOK_LIST_NOT_FOUND');
+  }
+
+  const item = await prisma.bookListItem.findFirst({
+    where: {
+      bookListId: req.params.id,
+      bookId: req.params.bookId
+    }
+  });
+
+  if (!item) {
+    throw new ApiError(404, 'BOOK_NOT_IN_LIST');
+  }
+
+  await prisma.bookListItem.delete({
+    where: { id: item.id }
+  });
+
+  const updated = await prisma.bookList.findUnique({
+    where: { id: req.params.id },
+    include: {
+      items: {
+        include: { book: true },
+        orderBy: { sortOrder: 'asc' }
+      }
+    }
+  });
+
+  res.json(mapBookList(updated));
+}));
+
+router.post('/book-lists/:id/reorder', asyncHandler(async (req, res) => {
+  const payload = bookListReorderBooksSchema.parse(req.body);
+
+  const bookList = await prisma.bookList.findUnique({
+    where: { id: req.params.id }
+  });
+
+  if (!bookList) {
+    throw new ApiError(404, 'BOOK_LIST_NOT_FOUND');
+  }
+
+  const existingItems = await prisma.bookListItem.findMany({
+    where: { bookListId: req.params.id },
+    select: { bookId: true }
+  });
+
+  const existingBookIds = existingItems.map(item => item.bookId);
+  const invalidIds = payload.bookIds.filter(id => !existingBookIds.includes(id));
+
+  if (invalidIds.length > 0) {
+    throw new ApiError(400, 'BOOKS_NOT_IN_LIST');
+  }
+
+  await prisma.$transaction(async (tx) => {
+    for (let i = 0; i < payload.bookIds.length; i++) {
+      await tx.bookListItem.updateMany({
+        where: {
+          bookListId: req.params.id,
+          bookId: payload.bookIds[i]
+        },
+        data: { sortOrder: i }
+      });
+    }
+  });
+
+  const updated = await prisma.bookList.findUnique({
+    where: { id: req.params.id },
+    include: {
+      items: {
+        include: { book: true },
+        orderBy: { sortOrder: 'asc' }
+      }
+    }
+  });
+
+  res.json(mapBookList(updated));
 }));
 
 module.exports = router;

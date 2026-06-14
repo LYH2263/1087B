@@ -149,6 +149,25 @@ const invoiceRejectSchema = z.object({
   reason: z.string().min(1, '请填写驳回原因')
 });
 
+const bookListBaseSchema = z.object({
+  title: z.string().min(1, '书单标题不能为空').max(100, '书单标题不能超过100个字符'),
+  coverUrl: coverUrlRule,
+  description: z.string().min(1, '书单简介不能为空').max(500, '书单简介不能超过500个字符'),
+  sortOrder: z.number().int().min(0, '排序值不能为负数').default(0)
+});
+
+const bookListCreateSchema = bookListBaseSchema;
+
+const bookListUpdateSchema = bookListBaseSchema.partial();
+
+const bookListAddBookSchema = z.object({
+  bookId: z.string().min(1, '请选择书籍')
+});
+
+const bookListReorderBooksSchema = z.object({
+  bookIds: z.array(z.string()).min(1, '至少需要一本书籍')
+});
+
 module.exports = {
   registerSchema,
   loginSchema,
@@ -167,5 +186,9 @@ module.exports = {
   flashSalePurchaseSchema,
   invoiceApplySchema,
   invoiceRejectSchema,
-  taxNumberRule
+  taxNumberRule,
+  bookListCreateSchema,
+  bookListUpdateSchema,
+  bookListAddBookSchema,
+  bookListReorderBooksSchema
 };

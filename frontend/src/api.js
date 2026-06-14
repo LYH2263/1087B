@@ -247,6 +247,12 @@ export const api = {
       body: JSON.stringify(payload)
     });
   },
+  getBookLists() {
+    return request('/book-lists');
+  },
+  getBookList(id) {
+    return request(`/book-lists/${id}`);
+  },
   admin: {
     getBooks(params = {}) {
       const query = new URLSearchParams(params).toString();
@@ -355,6 +361,53 @@ export const api = {
     },
     rejectInvoice(id, payload) {
       return request(`/admin/invoices/${id}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    },
+    getBookLists(params = {}) {
+      const query = new URLSearchParams(params).toString();
+      return request(`/admin/book-lists${query ? `?${query}` : ''}`);
+    },
+    getBookList(id) {
+      return request(`/admin/book-lists/${id}`);
+    },
+    createBookList(payload) {
+      return request('/admin/book-lists', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    },
+    updateBookList(id, payload) {
+      return request(`/admin/book-lists/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    },
+    deleteBookList(id) {
+      return request(`/admin/book-lists/${id}`, { method: 'DELETE' });
+    },
+    publishBookList(id) {
+      return request(`/admin/book-lists/${id}/publish`, { method: 'POST' });
+    },
+    unpublishBookList(id) {
+      return request(`/admin/book-lists/${id}/unpublish`, { method: 'POST' });
+    },
+    addBookToList(bookListId, payload) {
+      return request(`/admin/book-lists/${bookListId}/books`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    },
+    removeBookFromList(bookListId, bookId) {
+      return request(`/admin/book-lists/${bookListId}/books/${bookId}`, { method: 'DELETE' });
+    },
+    reorderBooksInList(bookListId, payload) {
+      return request(`/admin/book-lists/${bookListId}/reorder`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)

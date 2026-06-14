@@ -16,6 +16,8 @@ export const state = {
   orders: [],
   invoices: [],
   addresses: [],
+  bookLists: [],
+  currentBookList: null,
   flashSales: {
     items: [],
     serverTime: null,
@@ -30,7 +32,9 @@ export const state = {
     invoices: false,
     addresses: false,
     admin: false,
-    flashSales: false
+    flashSales: false,
+    bookLists: false,
+    bookListDetail: false
   },
   admin: {
     tab: 'books',
@@ -42,7 +46,10 @@ export const state = {
     flashSales: [],
     editingFlashSale: null,
     invoices: [],
-    invoiceStats: null
+    invoiceStats: null,
+    bookLists: [],
+    editingBookList: null,
+    selectedBookList: null
   },
   profile: {
     editingAddress: null

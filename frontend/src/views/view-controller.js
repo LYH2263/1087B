@@ -78,6 +78,15 @@ export function createViewController({
     return map[type] || type;
   }
 
+  function formatBookListStatus(status) {
+    const map = {
+      DRAFT: '草稿',
+      PUBLISHED: '已上线',
+      ARCHIVED: '已归档'
+    };
+    return map[status] || status;
+  }
+
   function setNavActive(view) {
     document.querySelectorAll('.nav-btn').forEach((btn) => {
       const active = btn.dataset.view === view;
@@ -641,6 +650,7 @@ export function createViewController({
         <button class="btn-outline" data-action="admin-tab" data-tab="orders">订单管理</button>
         <button class="btn-outline" data-action="admin-tab" data-tab="flash-sales">秒杀管理</button>
         <button class="btn-outline" data-action="admin-tab" data-tab="invoices">发票管理</button>
+        <button class="btn-outline" data-action="admin-tab" data-tab="book-lists">书单管理</button>
       </div>
     `;
 
@@ -976,7 +986,347 @@ export function createViewController({
       `;
     }
 
+    if (state.admin.tab === 'book-lists') {
+      const editing = state.admin.editingBookList;
+      const selected = state.admin.selectedBookList;
+
+      if (selected) {
+        const availableBooks = state.admin.books
+          .filter(book => book.status === 'ACTIVE' && !selected.items.some(item => item.bookId === book.id));
+        
+        const bookOptions = availableBooks
+          .map(book => `<option value="${book.id}">${book.title} - ${formatCurrency(book.price)}</option>`)
+          .join('');
+
+        const bookItems = selected.items
+          .map((item, index) => {
+            const book = item.book;
+            if (!book) return '';
+            
+            const statusBadge = book.status === 'ACTIVE'
+              ? '<span class="badge badge-active">在售</span>'
+              : '<span class="badge badge-inactive">已下架</span>';
+
+            return `
+              <div class="border border-slate-200 rounded-xl p-4 flex flex-col md:flex-row md:items-center gap-4 hover-card" data-book-id="${book.id}">
+                <div class="flex items-center gap-3">
+                  <button class="btn-outline text-sm px-2 py-1" data-action="move-book-up" data-id="${book.id}" ${index === 0 ? 'disabled' : ''}>↑</button>
+                  <button class="btn-outline text-sm px-2 py-1" data-action="move-book-down" data-id="${book.id}" ${index === selected.items.length - 1 ? 'disabled' : ''}>↓</button>
+                  <span class="w-8 text-center font-semibold text-slate-400">${index + 1}</span>
+                </div>
+                <img src="${book.coverUrl}" alt="${book.title}" class="w-16 h-16 object-contain rounded-lg bg-white" />
+                <div class="flex-1">
+                  <p class="font-semibold">${book.title}</p>
+                  <p class="text-xs text-slate-500">${book.author}</p>
+                  <div class="flex gap-2 mt-1">
+                    ${statusBadge}
+                    <span class="badge">${formatCurrency(book.price)}</span>
+                  </div>
+                </div>
+                <div class="flex gap-2">
+                  <button class="btn-outline" data-action="remove-book-from-list" data-id="${book.id}">移除</button>
+                </div>
+              </div>
+            `;
+          })
+          .join('');
+
+        content = `
+          <div class="card p-6 space-y-4">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-4">
+                <button class="btn-outline" data-action="back-to-book-lists">← 返回书单列表</button>
+                <div>
+                  <h3 class="text-lg font-semibold">管理书单：${selected.title}</h3>
+                  <p class="text-sm text-slate-500">添加、移除书籍或调整顺序</p>
+                </div>
+              </div>
+              <span class="badge ${selected.status === 'PUBLISHED' ? 'badge-active' : ''}">${formatBookListStatus(selected.status)}</span>
+            </div>
+          </div>
+
+          <div class="card p-6 space-y-4">
+            <h3 class="text-lg font-semibold">添加书籍</h3>
+            <form data-form="admin-add-book-to-list" class="flex flex-col md:flex-row gap-3" novalidate>
+              <input type="hidden" name="bookListId" value="${selected.id}" />
+              <div class="flex-1">
+                <select class="input" name="bookId" required>
+                  <option value="">选择要添加的书籍</option>
+                  ${bookOptions || '<option value="" disabled>没有可添加的书籍</option>'}
+                </select>
+              </div>
+              <button class="btn-primary" type="submit" ${availableBooks.length === 0 ? 'disabled' : ''}>添加</button>
+            </form>
+          </div>
+
+          <div class="card p-6 space-y-4">
+            <div class="flex items-center justify-between">
+              <h3 class="text-lg font-semibold">书单书籍（${selected.items.length} 本）</h3>
+              <p class="text-xs text-slate-500">拖拽或使用上下箭头调整顺序</p>
+            </div>
+            ${selected.items.length === 0 ? '<p class="text-slate-500">书单为空，请添加书籍</p>' : `<div class="space-y-3">${bookItems}</div>`}
+          </div>
+
+          <div class="card p-6 space-y-4">
+            <h3 class="text-lg font-semibold">书单操作</h3>
+            <div class="flex flex-wrap gap-2">
+              ${selected.status === 'DRAFT' ? `<button class="btn-primary" data-action="publish-book-list" data-id="${selected.id}">上线书单</button>` : ''}
+              ${selected.status === 'PUBLISHED' ? `<button class="btn-outline" data-action="unpublish-book-list" data-id="${selected.id}">下线书单</button>` : ''}
+              <button class="btn-outline" data-action="edit-book-list" data-id="${selected.id}">编辑信息</button>
+              <button class="btn-outline text-red-600" data-action="delete-book-list" data-id="${selected.id}">删除书单</button>
+            </div>
+          </div>
+        `;
+      } else if (editing) {
+        content = `
+          <div class="card p-6 space-y-4">
+            <div class="flex items-center gap-4">
+              <button class="btn-outline" data-action="back-to-book-lists">← 返回书单列表</button>
+              <h3 class="text-lg font-semibold">${editing.id ? '编辑书单' : '新增书单'}</h3>
+            </div>
+            <form data-form="admin-book-list" class="grid md:grid-cols-2 gap-3" novalidate>
+              <input type="hidden" name="bookListId" value="${editing.id || ''}" />
+              <div class="space-y-1 md:col-span-2">
+                <label class="text-sm text-slate-600">书单标题</label>
+                <input class="input" name="title" placeholder="书单标题" value="${escapeHtmlAttr(editing.title || '')}" required />
+              </div>
+              <div class="space-y-2">
+                <label class="text-sm text-slate-600">封面图片</label>
+                <input class="input" type="file" name="coverFile" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" />
+                ${editing.coverUrl ? `<div class="flex items-center gap-3 text-xs text-slate-500"><img src="${editing.coverUrl}" alt="cover" class="w-16 h-16 rounded-lg object-contain bg-white border border-slate-200" /><span>当前封面</span></div>` : '<p class="text-xs text-slate-500">支持 jpg/png/webp/gif/svg，最大 2MB</p>'}
+                <input type="hidden" name="coverUrl" value="${escapeHtmlAttr(editing.coverUrl || '')}" />
+              </div>
+              <div class="space-y-1">
+                <label class="text-sm text-slate-600">排序值</label>
+                <input class="input" name="sortOrder" type="number" min="0" placeholder="排序值，数字越小越靠前" value="${editing.sortOrder ?? 0}" required />
+              </div>
+              <div class="space-y-1 md:col-span-2">
+                <label class="text-sm text-slate-600">书单简介</label>
+                <textarea class="input" name="description" placeholder="书单简介" rows="3" required>${escapeHtmlAttr(editing.description || '')}</textarea>
+              </div>
+              <div class="md:col-span-2 flex justify-end gap-2">
+                <button class="btn-outline" type="button" data-action="cancel-edit-book-list">取消</button>
+                <button class="btn-primary" type="submit">${editing.id ? '保存修改' : '创建书单'}</button>
+              </div>
+            </form>
+          </div>
+        `;
+      } else {
+        const bookListRows = state.admin.bookLists
+          .map(
+            (list) => {
+              const statusBadge = list.status === 'PUBLISHED'
+                ? '<span class="badge badge-active">已上线</span>'
+                : list.status === 'DRAFT'
+                  ? '<span class="badge">草稿</span>'
+                  : '<span class="badge badge-inactive">已归档</span>';
+
+              return `
+                <div class="border border-slate-200 rounded-xl p-4 flex flex-col gap-3 hover-card">
+                  <div class="flex gap-4">
+                    <div class="w-24 h-32 rounded-xl overflow-hidden bg-slate-100 flex-shrink-0">
+                      <img src="${list.coverUrl}" alt="${list.title}" class="w-full h-full object-cover" />
+                    </div>
+                    <div class="flex-1 min-w-0">
+                      <div class="flex justify-between items-start">
+                        <div>
+                          <h4 class="font-semibold">${list.title}</h4>
+                          <p class="text-sm text-slate-500 line-clamp-2">${list.description}</p>
+                        </div>
+                        ${statusBadge}
+                      </div>
+                      <div class="flex flex-wrap gap-2 mt-2 text-sm text-slate-600">
+                        <span>书籍数：${list.itemCount}</span>
+                        <span>排序：${list.sortOrder}</span>
+                        <span>创建时间：${new Date(list.createdAt).toLocaleDateString()}</span>
+                      </div>
+                      <div class="flex flex-wrap gap-2 mt-3">
+                        <button class="btn-outline" data-action="manage-book-list" data-id="${list.id}">管理书籍</button>
+                        <button class="btn-outline" data-action="edit-book-list" data-id="${list.id}">编辑</button>
+                        ${list.status === 'DRAFT' ? `<button class="btn-primary" data-action="publish-book-list" data-id="${list.id}">上线</button>` : ''}
+                        ${list.status === 'PUBLISHED' ? `<button class="btn-outline" data-action="unpublish-book-list" data-id="${list.id}">下线</button>` : ''}
+                        <button class="btn-outline text-red-600" data-action="delete-book-list" data-id="${list.id}">删除</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              `;
+            }
+          )
+          .join('');
+
+        content = `
+          <div class="card p-6 space-y-4">
+            <div class="flex items-center justify-between">
+              <h3 class="text-lg font-semibold">书单管理</h3>
+              <button class="btn-primary" data-action="create-book-list">+ 新增书单</button>
+            </div>
+          </div>
+          <div class="space-y-4">${bookListRows || '<div class="card p-6 text-slate-500">暂无书单，请创建新书单</div>'}</div>
+        `;
+      }
+    }
+
     viewContent.innerHTML = `${adminTabs}${content}`;
+  }
+
+  function renderBookLists() {
+    viewTitle.innerHTML = `
+      <div>
+        <h2 class="text-xl font-semibold">专题书单</h2>
+        <p class="text-sm text-slate-500">精选好书合集，发现更多精彩</p>
+      </div>
+    `;
+
+    if (state.loading.bookLists) {
+      viewContent.innerHTML = renderSkeleton();
+      return;
+    }
+
+    if (state.bookLists.length === 0) {
+      viewContent.innerHTML = `<div class="card p-6 text-slate-500">暂无专题书单</div>`;
+      return;
+    }
+
+    const bookListCards = state.bookLists
+      .map(
+        (list) => `
+        <div class="card hover-card p-4 flex flex-col gap-3 cursor-pointer" data-action="view-book-list" data-id="${list.id}">
+          <div class="rounded-xl overflow-hidden h-44 bg-slate-100">
+            <img src="${list.coverUrl}" alt="${list.title}" class="w-full h-full object-cover" />
+          </div>
+          <div>
+            <h3 class="font-semibold text-lg">${list.title}</h3>
+            <p class="text-sm text-slate-500 line-clamp-2">${list.description}</p>
+            <div class="flex flex-wrap gap-2 mt-2">
+              <span class="badge">${list.itemCount} 本书</span>
+              <span class="badge">更新于 ${new Date(list.createdAt).toLocaleDateString()}</span>
+            </div>
+          </div>
+          <button class="btn-primary mt-auto" data-action="view-book-list" data-id="${list.id}">查看详情</button>
+        </div>
+      `
+      )
+      .join('');
+
+    viewContent.innerHTML = `<div class="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">${bookListCards}</div>`;
+  }
+
+  function renderBookListDetail() {
+    const list = state.currentBookList;
+
+    if (!list) {
+      viewContent.innerHTML = `<div class="card p-6 text-slate-500">书单不存在</div>`;
+      return;
+    }
+
+    viewTitle.innerHTML = `
+      <div class="flex items-center gap-4">
+        <button class="btn-outline" data-action="back-to-book-lists">← 返回列表</button>
+        <div>
+          <h2 class="text-xl font-semibold">${list.title}</h2>
+          <p class="text-sm text-slate-500">${list.description}</p>
+        </div>
+      </div>
+    `;
+
+    if (state.loading.bookListDetail) {
+      viewContent.innerHTML = renderSkeleton();
+      return;
+    }
+
+    const activeItems = list.items.filter(item => item.book?.isActive);
+    const inactiveItems = list.items.filter(item => item.book && !item.book.isActive);
+
+    if (list.items.length === 0) {
+      viewContent.innerHTML = `
+        <div class="card p-6">
+          <div class="text-center py-10">
+            <p class="text-slate-500">该书单暂无书籍</p>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    const activeBookCards = activeItems
+      .map(
+        (item) => `
+        <div class="card hover-card p-4 flex flex-col gap-3">
+          <div class="rounded-xl overflow-hidden h-44 bg-slate-100">
+            <img src="${item.book.coverUrl}" alt="${item.book.title}" class="w-full h-full object-contain" />
+          </div>
+          <div>
+            <h3 class="font-semibold text-lg">${item.book.title}</h3>
+            <p class="text-sm text-slate-500">${item.book.author}</p>
+            <div class="flex flex-wrap gap-2 mt-2">
+              <span class="badge">库存 ${item.book.stock}</span>
+            </div>
+          </div>
+          <div class="flex items-center justify-between">
+            <p class="text-lg font-semibold text-slate-900">${formatCurrency(item.book.price)}</p>
+            <button class="btn-primary" data-action="add-to-cart" data-id="${item.bookId}">加入购物车</button>
+          </div>
+        </div>
+      `
+      )
+      .join('');
+
+    const inactiveBookCards = inactiveItems.length > 0 ? `
+      <div class="card p-5">
+        <h3 class="text-lg font-semibold mb-4 text-slate-500">以下书籍已下架</h3>
+        <div class="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
+          ${inactiveItems
+            .map(
+              (item) => `
+            <div class="card p-4 flex flex-col gap-3 opacity-60">
+              <div class="rounded-xl overflow-hidden h-44 bg-slate-100">
+                <img src="${item.book.coverUrl}" alt="${item.book.title}" class="w-full h-full object-contain grayscale" />
+              </div>
+              <div>
+                <h3 class="font-semibold text-lg">${item.book.title}</h3>
+                <p class="text-sm text-slate-500">${item.book.author}</p>
+                <div class="flex flex-wrap gap-2 mt-2">
+                  <span class="badge badge-inactive">已下架</span>
+                </div>
+              </div>
+              <div class="flex items-center justify-between">
+                <p class="text-lg font-semibold text-slate-400 line-through">${formatCurrency(item.book.price)}</p>
+                <button class="btn-outline" disabled>暂不可购</button>
+              </div>
+            </div>
+          `
+            )
+            .join('')}
+        </div>
+      </div>
+    ` : '';
+
+    viewContent.innerHTML = `
+      <div class="card p-5 mb-4">
+        <div class="flex flex-col md:flex-row gap-6">
+          <div class="w-full md:w-48 h-64 rounded-xl overflow-hidden bg-slate-100 flex-shrink-0">
+            <img src="${list.coverUrl}" alt="${list.title}" class="w-full h-full object-cover" />
+          </div>
+          <div class="flex-1">
+            <h2 class="text-2xl font-bold mb-2">${list.title}</h2>
+            <p class="text-slate-600 mb-4">${list.description}</p>
+            <div class="flex flex-wrap gap-2">
+              <span class="badge">共 ${list.itemCount} 本书</span>
+              <span class="badge">${activeItems.length} 本可购买</span>
+              <span class="badge">更新于 ${new Date(list.createdAt).toLocaleDateString()}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      ${activeItems.length > 0 ? `
+        <div class="card p-5">
+          <h3 class="text-lg font-semibold mb-4">书单书籍</h3>
+          <div class="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">${activeBookCards}</div>
+        </div>
+      ` : ''}
+      ${inactiveBookCards}
+    `;
   }
 
   const viewRenderers = {
@@ -985,7 +1335,9 @@ export function createViewController({
     orders: renderOrders,
     invoices: renderInvoices,
     profile: renderProfile,
-    admin: renderAdmin
+    admin: renderAdmin,
+    'book-lists': renderBookLists,
+    'book-list-detail': renderBookListDetail
   };
 
   function renderView() {
@@ -1008,6 +1360,7 @@ export function createViewController({
     formatStatus,
     formatInvoiceStatus,
     formatInvoiceTitleType,
+    formatBookListStatus,
     setNavActive,
     updateAuthUI,
     renderView,

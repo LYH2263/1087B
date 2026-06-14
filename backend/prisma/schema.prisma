@@ -43,6 +43,12 @@ enum InvoiceTitleType {
   ENTERPRISE
 }
 
+enum BookListStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
 enum PaymentMethod {
   WECHAT
   ALIPAY
@@ -96,23 +102,24 @@ model Category {
 }
 
 model Book {
-  id          String     @id @default(cuid())
+  id          String         @id @default(cuid())
   title       String
   author      String
-  isbn        String     @unique
+  isbn        String         @unique
   description String
   priceCents  Int
   stock       Int
   coverUrl    String
-  sales       Int        @default(0)
-  status      BookStatus @default(ACTIVE)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  sales       Int            @default(0)
+  status      BookStatus     @default(ACTIVE)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
   categoryId  String
-  category    Category   @relation(fields: [categoryId], references: [id])
+  category    Category       @relation(fields: [categoryId], references: [id])
   cartItems   CartItem[]
   orderItems  OrderItem[]
   flashSales  FlashSale[]
+  listItems   BookListItem[]
 }
 
 model CartItem {
@@ -234,4 +241,31 @@ model Invoice {
 
   @@index([userId])
   @@index([status])
+}
+
+model BookList {
+  id          String           @id @default(cuid())
+  title       String
+  coverUrl    String
+  description String
+  sortOrder   Int              @default(0)
+  status      BookListStatus   @default(DRAFT)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  items       BookListItem[]
+
+  @@index([status, sortOrder])
+}
+
+model BookListItem {
+  id         String   @id @default(cuid())
+  bookListId String
+  bookId     String
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+  bookList   BookList @relation(fields: [bookListId], references: [id], onDelete: Cascade)
+  book       Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+
+  @@unique([bookListId, bookId])
+  @@index([bookListId, sortOrder])
 }
