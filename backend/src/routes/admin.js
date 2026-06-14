@@ -5,7 +5,7 @@ const multer = require('multer');
 const prisma = require('../db');
 const asyncHandler = require('../utils/asyncHandler');
 const { ApiError } = require('../errors');
-const { bookSchema, bookUpdateSchema, categorySchema, flashSaleCreateSchema, flashSaleUpdateSchema } = require('../validators');
+const { bookSchema, bookUpdateSchema, categorySchema, flashSaleCreateSchema, flashSaleUpdateSchema, invoiceRejectSchema } = require('../validators');
 const { toCents, fromCents } = require('../utils/money');
 
 const router = express.Router();
@@ -568,6 +568,213 @@ router.delete('/flash-sales/:id', asyncHandler(async (req, res) => {
   });
 
   res.json({ message: 'flash sale deleted' });
+}));
+
+function generateInvoiceNumber() {
+  const date = new Date();
+  const dateStr = date.getFullYear().toString() +
+    String(date.getMonth() + 1).padStart(2, '0') +
+    String(date.getDate()).padStart(2, '0');
+  const random = Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
+  return `INV${dateStr}${random}`;
+}
+
+function mapAdminInvoice(invoice) {
+  return {
+    id: invoice.id,
+    orderId: invoice.orderId,
+    userId: invoice.userId,
+    status: invoice.status,
+    titleType: invoice.titleType,
+    titleName: invoice.titleName,
+    taxNumber: invoice.taxNumber,
+    email: invoice.email,
+    invoiceNumber: invoice.invoiceNumber,
+    invoiceContent: invoice.invoiceContent,
+    pdfUrl: invoice.pdfUrl,
+    rejectReason: invoice.rejectReason,
+    issuedAt: invoice.issuedAt,
+    rejectedAt: invoice.rejectedAt,
+    createdAt: invoice.createdAt,
+    user: invoice.user ? {
+      id: invoice.user.id,
+      username: invoice.user.username,
+      email: invoice.user.email,
+      phone: invoice.user.phone
+    } : null,
+    order: invoice.order ? {
+      id: invoice.order.id,
+      total: fromCents(invoice.order.totalCents),
+      status: invoice.order.status,
+      createdAt: invoice.order.createdAt,
+      items: invoice.order.items?.map((item) => ({
+        id: item.id,
+        title: item.title,
+        quantity: item.quantity,
+        price: fromCents(item.priceCents)
+      }))
+    } : null
+  };
+}
+
+router.get('/invoices', asyncHandler(async (req, res) => {
+  const { status } = req.query;
+  const where = {};
+  if (status) {
+    where.status = String(status);
+  }
+
+  const invoices = await prisma.invoice.findMany({
+    where,
+    include: {
+      user: true,
+      order: {
+        include: { items: true }
+      }
+    },
+    orderBy: { createdAt: 'desc' }
+  });
+
+  res.json(invoices.map(mapAdminInvoice));
+}));
+
+router.get('/invoices/stats', asyncHandler(async (req, res) => {
+  const grouped = await prisma.invoice.groupBy({
+    by: ['status'],
+    _count: { _all: true }
+  });
+
+  res.json({
+    statusCounts: grouped.reduce((acc, item) => {
+      acc[item.status] = item._count._all;
+      return acc;
+    }, {})
+  });
+}));
+
+router.get('/invoices/:id', asyncHandler(async (req, res) => {
+  const invoice = await prisma.invoice.findUnique({
+    where: { id: req.params.id },
+    include: {
+      user: true,
+      order: {
+        include: { items: true }
+      }
+    }
+  });
+
+  if (!invoice) {
+    throw new ApiError(404, 'INVOICE_NOT_FOUND');
+  }
+
+  res.json(mapAdminInvoice(invoice));
+}));
+
+router.post('/invoices/:id/issue', asyncHandler(async (req, res) => {
+  const invoice = await prisma.invoice.findUnique({
+    where: { id: req.params.id },
+    include: {
+      order: {
+        include: { items: true }
+      }
+    }
+  });
+
+  if (!invoice) {
+    throw new ApiError(404, 'INVOICE_NOT_FOUND');
+  }
+
+  if (invoice.status !== 'PENDING') {
+    throw new ApiError(400, 'INVOICE_NOT_PENDING');
+  }
+
+  if (invoice.order?.status === 'REFUNDED') {
+    throw new ApiError(400, 'ORDER_REFUNDED_CANNOT_INVOICE');
+  }
+
+  const invoiceNumber = generateInvoiceNumber();
+  const invoiceContent = generateInvoiceContent(invoice, invoiceNumber);
+  const pdfUrl = `/invoices/${invoice.id}.pdf`;
+
+  const updated = await prisma.invoice.update({
+    where: { id: req.params.id },
+    data: {
+      status: 'ISSUED',
+      invoiceNumber,
+      invoiceContent,
+      pdfUrl,
+      issuedAt: new Date()
+    },
+    include: {
+      user: true,
+      order: {
+        include: { items: true }
+      }
+    }
+  });
+
+  res.json(mapAdminInvoice(updated));
+}));
+
+function generateInvoiceContent(invoice, invoiceNumber) {
+  const order = invoice.order;
+  const items = order?.items || [];
+  const totalAmount = order ? fromCents(order.totalCents) : 0;
+
+  const itemsText = items.map((item, index) =>
+    `${index + 1}. ${item.title} x${item.quantity}  ¥${fromCents(item.priceCents * item.quantity).toFixed(2)}`
+  ).join('\n');
+
+  return `
+电子发票
+发票号码: ${invoiceNumber}
+开票日期: ${new Date().toLocaleDateString('zh-CN')}
+
+抬头类型: ${invoice.titleType === 'PERSONAL' ? '个人' : '企业'}
+抬头名称: ${invoice.titleName}
+${invoice.taxNumber ? `税号: ${invoice.taxNumber}` : ''}
+
+商品明细:
+${itemsText}
+
+合计金额: ¥${totalAmount.toFixed(2)}
+
+开票方: 示例书店有限公司
+备注: 此为电子发票，与纸质发票具有同等法律效力
+  `.trim();
+}
+
+router.post('/invoices/:id/reject', asyncHandler(async (req, res) => {
+  const payload = invoiceRejectSchema.parse(req.body);
+
+  const invoice = await prisma.invoice.findUnique({
+    where: { id: req.params.id }
+  });
+
+  if (!invoice) {
+    throw new ApiError(404, 'INVOICE_NOT_FOUND');
+  }
+
+  if (invoice.status !== 'PENDING') {
+    throw new ApiError(400, 'INVOICE_NOT_PENDING');
+  }
+
+  const updated = await prisma.invoice.update({
+    where: { id: req.params.id },
+    data: {
+      status: 'REJECTED',
+      rejectReason: payload.reason,
+      rejectedAt: new Date()
+    },
+    include: {
+      user: true,
+      order: {
+        include: { items: true }
+      }
+    }
+  });
+
+  res.json(mapAdminInvoice(updated));
 }));
 
 module.exports = router;

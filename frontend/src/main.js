@@ -50,7 +50,12 @@ const toastMap = [
   [/FLASH_SALE_OVERLAPPING|flash_sale_overlapping/i, '同一书籍不能有重叠的秒杀场次'],
   [/FLASH_SALE_HAS_ORDERS|flash_sale_has_orders/i, '该场次已有订单，无法删除'],
   [/FLASH_SALE_STOCK_TOO_LOW|flash_sale_stock_too_low/i, '库存不能低于已售数量'],
-  [/BOOK_NOT_ACTIVE|book_not_active/i, '该书籍未上架']
+  [/BOOK_NOT_ACTIVE|book_not_active/i, '该书籍未上架'],
+  [/INVOICE_NOT_FOUND|invoice_not_found/i, '发票不存在'],
+  [/INVOICE_ALREADY_EXISTS|invoice_already_exists/i, '该订单已有有效发票申请'],
+  [/INVOICE_NOT_PENDING|invoice_not_pending/i, '该发票状态不支持此操作'],
+  [/ORDER_REFUNDED_CANNOT_INVOICE|order_refunded_cannot_invoice/i, '退款订单不可开具发票'],
+  [/ORDER_NOT_PAID|order_not_paid/i, '订单未支付，不能申请发票']
 ];
 
 function toChineseToast(message) {
@@ -122,7 +127,27 @@ async function loadCart() {
 
 async function loadOrders() {
   if (!state.user) return;
-  state.orders = await api.getOrders();
+  const [orders, invoices] = await Promise.all([
+    api.getOrders(),
+    api.getInvoices().catch(() => [])
+  ]);
+  state.orders = orders.map(order => {
+    const invoice = invoices.find(inv => inv.orderId === order.id);
+    return {
+      ...order,
+      hasInvoice: !!invoice,
+      invoiceStatus: invoice?.status
+    };
+  });
+}
+
+async function loadInvoices() {
+  if (!state.user) return;
+  state.loading.invoices = true;
+  safeRender();
+  state.invoices = await api.getInvoices();
+  state.loading.invoices = false;
+  safeRender();
 }
 
 async function loadAddresses() {
@@ -133,11 +158,22 @@ async function loadAddresses() {
 async function loadAdmin() {
   if (!state.user || state.user.role !== 'ADMIN') return;
   state.loading.admin = true;
-  state.admin.books = await api.admin.getBooks();
-  state.admin.categories = await api.admin.getCategories();
-  state.admin.orders = await api.admin.getOrders();
-  state.admin.stats = await api.admin.getOrderStats();
-  state.admin.flashSales = await api.admin.getFlashSales();
+  const [books, categories, orders, stats, flashSales, invoices, invoiceStats] = await Promise.all([
+    api.admin.getBooks(),
+    api.admin.getCategories(),
+    api.admin.getOrders(),
+    api.admin.getOrderStats(),
+    api.admin.getFlashSales(),
+    api.admin.getInvoices(),
+    api.admin.getInvoiceStats()
+  ]);
+  state.admin.books = books;
+  state.admin.categories = categories;
+  state.admin.orders = orders;
+  state.admin.stats = stats;
+  state.admin.flashSales = flashSales;
+  state.admin.invoices = invoices;
+  state.admin.invoiceStats = invoiceStats;
   state.loading.admin = false;
 }
 
@@ -250,6 +286,7 @@ const viewLoaders = {
     await loadAddresses();
   },
   orders: loadOrders,
+  invoices: loadInvoices,
   profile: loadAddresses,
   admin: loadAdmin
 };
@@ -360,6 +397,7 @@ bindEventHandlers({
   normalizeBookSearch,
   loadCart,
   loadOrders,
+  loadInvoices,
   loadAddresses,
   loadAdmin,
   loadFlashSales,

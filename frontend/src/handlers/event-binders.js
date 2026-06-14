@@ -11,6 +11,8 @@ import {
   adminCategorySchema,
   flashSaleCreateSchema,
   flashSalePurchaseSchema,
+  invoiceApplySchema,
+  invoiceRejectSchema,
   COVER_MAX_SIZE,
   COVER_TYPES
 } from '../validation/schemas.js';
@@ -140,6 +142,7 @@ export function bindEventHandlers({
   normalizeBookSearch,
   loadCart,
   loadOrders,
+  loadInvoices,
   loadAddresses,
   loadAdmin,
   loadFlashSales,
@@ -231,8 +234,59 @@ export function bindEventHandlers({
       await loadOrders();
       safeRender();
       showToast('评价已提交', 'success');
+    },
+    'invoice-apply': async (form) => {
+      const data = getFormData(form);
+      const parsed = invoiceApplySchema.parse({
+        orderId: data.orderId,
+        titleType: data.titleType,
+        titleName: data.titleName,
+        taxNumber: data.taxNumber || undefined,
+        email: data.email
+      });
+      const submitBtn = form.querySelector('button[type="submit"]');
+      const originalText = submitBtn?.textContent;
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = '提交中...';
+      }
+      try {
+        await api.applyInvoice(parsed);
+        closeModal();
+        showToast('发票申请已提交', 'success');
+        if (typeof loadOrders === 'function') await loadOrders();
+        if (typeof loadInvoices === 'function') await loadInvoices();
+        safeRender();
+      } finally {
+        if (submitBtn && document.body.contains(submitBtn)) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = originalText || '提交申请';
+        }
+      }
+    },
+    'invoice-reject': async (form) => {
+      const data = getFormData(form);
+      const parsed = invoiceRejectSchema.parse({
+        reason: data.reason
+      });
+      const invoiceId = form.dataset.invoiceId;
+      await api.admin.rejectInvoice(invoiceId, parsed);
+      closeModal();
+      showToast('发票已驳回', 'success');
+      if (typeof loadAdmin === 'function') await loadAdmin();
+      safeRender();
     }
   };
+
+  modal.addEventListener('change', (event) => {
+    const target = event.target;
+    if (target.name === 'titleType') {
+      const form = target.closest('form');
+      if (form && form.dataset.form === 'invoice-apply') {
+        updateTaxNumberVisibility(form);
+      }
+    }
+  });
 
   modal.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -670,11 +724,154 @@ export function bindEventHandlers({
       await loadAdmin();
       safeRender();
       showToast('秒杀场次已删除', 'success');
+    },
+    'apply-invoice': async (target) => {
+      if (!state.user) {
+        openLoginModal();
+        return;
+      }
+      const orderId = target.dataset.id;
+      const order = state.orders?.find(o => o.id === orderId);
+      if (!order) {
+        showToast('订单不存在', 'error');
+        return;
+      }
+      if (order.status === 'REFUNDED') {
+        showToast('退款订单不可申请发票', 'error');
+        return;
+      }
+      if (order.hasInvoice && order.invoiceStatus !== 'REJECTED') {
+        showToast('该订单已有发票申请', 'error');
+        return;
+      }
+      openModal(`
+        <div class="space-y-4">
+          <h3 class="text-lg font-semibold">申请电子发票</h3>
+          <p class="text-sm text-slate-500">订单号：${orderId} · 金额：${formatCurrencyLocal(order.total)}</p>
+          <form data-form="invoice-apply" data-order="${orderId}" class="space-y-3" novalidate>
+            <input type="hidden" name="orderId" value="${orderId}" />
+            <div class="space-y-1">
+              <label class="text-sm text-slate-600">抬头类型</label>
+              <div class="grid grid-cols-2 gap-3" data-error-group="titleType">
+                <label class="card p-3 flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="titleType" value="PERSONAL" checked /> 个人
+                </label>
+                <label class="card p-3 flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="titleType" value="ENTERPRISE" /> 企业
+                </label>
+              </div>
+            </div>
+            <div class="space-y-1">
+              <label class="text-sm text-slate-600">抬头名称</label>
+              <input class="input" name="titleName" placeholder="请输入抬头名称" required />
+            </div>
+            <div class="space-y-1" id="tax-number-field">
+              <label class="text-sm text-slate-600">企业税号</label>
+              <input class="input" name="taxNumber" placeholder="请输入18位统一社会信用代码" />
+              <p class="text-xs text-slate-400">企业抬头必填，请输入18位统一社会信用代码</p>
+            </div>
+            <div class="space-y-1">
+              <label class="text-sm text-slate-600">接收邮箱</label>
+              <input class="input" name="email" type="email" placeholder="请输入邮箱地址" required />
+            </div>
+            <button class="btn-primary w-full" type="submit">提交申请</button>
+          </form>
+        </div>
+      `);
+      setupInvoiceForm();
+    },
+    'download-invoice': async (target) => {
+      const invoiceId = target.dataset.id;
+      const invoice = state.invoices?.find(inv => inv.id === invoiceId);
+      if (!invoice || !invoice.invoiceContent) {
+        showToast('发票内容不存在', 'error');
+        return;
+      }
+      const blob = new Blob([invoice.invoiceContent], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `发票_${invoice.invoiceNumber || invoice.id}.txt`;
+      link.click();
+      URL.revokeObjectURL(url);
+      showToast('发票已下载', 'success');
+    },
+    'admin-issue-invoice': async (target) => {
+      const invoiceId = target.dataset.id;
+      if (!confirm('确定要开具这张发票吗？')) {
+        return;
+      }
+      await api.admin.issueInvoice(invoiceId);
+      showToast('发票已开具', 'success');
+      if (typeof loadAdmin === 'function') await loadAdmin();
+      safeRender();
+    },
+    'admin-reject-invoice': async (target) => {
+      const invoiceId = target.dataset.id;
+      openModal(`
+        <div class="space-y-4">
+          <h3 class="text-lg font-semibold">驳回发票申请</h3>
+          <form data-form="invoice-reject" data-invoice-id="${invoiceId}" class="space-y-3" novalidate>
+            <div class="space-y-1">
+              <label class="text-sm text-slate-600">驳回原因</label>
+              <textarea class="input" name="reason" rows="3" placeholder="请填写驳回原因" required></textarea>
+            </div>
+            <button class="btn-primary w-full" type="submit">确认驳回</button>
+          </form>
+        </div>
+      `);
+    },
+    'admin-view-invoice': async (target) => {
+      const invoiceId = target.dataset.id;
+      const invoice = state.admin.invoices?.find(inv => inv.id === invoiceId);
+      if (!invoice) {
+        showToast('发票不存在', 'error');
+        return;
+      }
+      openModal(`
+        <div class="space-y-4">
+          <h3 class="text-lg font-semibold">发票详情</h3>
+          <div class="space-y-2 text-sm">
+            <p><span class="text-slate-400">发票号码：</span>${invoice.invoiceNumber || '-'}</p>
+            <p><span class="text-slate-400">抬头类型：</span>${invoice.titleType === 'PERSONAL' ? '个人' : '企业'}</p>
+            <p><span class="text-slate-400">抬头名称：</span>${invoice.titleName}</p>
+            ${invoice.taxNumber ? `<p><span class="text-slate-400">税号：</span>${invoice.taxNumber}</p>` : ''}
+            <p><span class="text-slate-400">金额：</span>${formatCurrencyLocal(invoice.order?.total || 0)}</p>
+            <p><span class="text-slate-400">开票时间：</span>${invoice.issuedAt ? new Date(invoice.issuedAt).toLocaleString() : '-'}</p>
+          </div>
+          <div class="bg-teal-50 border border-teal-100 rounded-xl p-4 text-sm text-teal-700 whitespace-pre-wrap">${escapeHtml(invoice.invoiceContent || '')}</div>
+        </div>
+      `);
     }
   };
   
   function formatCurrencyLocal(value) {
     return `¥${Number(value).toFixed(2)}`;
+  }
+
+  function escapeHtml(value) {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  function setupInvoiceForm() {
+    const form = document.querySelector('[data-form="invoice-apply"]');
+    if (!form) return;
+    updateTaxNumberVisibility(form);
+  }
+
+  function updateTaxNumberVisibility(form) {
+    const titleType = form.querySelector('input[name="titleType"]:checked')?.value;
+    const taxNumberField = document.getElementById('tax-number-field');
+    if (!taxNumberField) return;
+    if (titleType === 'ENTERPRISE') {
+      taxNumberField.style.display = '';
+    } else {
+      taxNumberField.style.display = 'none';
+    }
   }
 
   viewContent.addEventListener('click', async (event) => {

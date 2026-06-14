@@ -234,6 +234,19 @@ export const api = {
   getMyFlashSaleOrders() {
     return request('/flash-sales/orders/mine');
   },
+  getInvoices() {
+    return request('/invoices');
+  },
+  getInvoice(id) {
+    return request(`/invoices/${id}`);
+  },
+  applyInvoice(payload) {
+    return request('/invoices/apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+  },
   admin: {
     getBooks(params = {}) {
       const query = new URLSearchParams(params).toString();
@@ -325,6 +338,26 @@ export const api = {
       return request('/admin/upload', {
         method: 'POST',
         body: formData
+      });
+    },
+    getInvoices(params = {}) {
+      const query = new URLSearchParams(params).toString();
+      return request(`/admin/invoices${query ? `?${query}` : ''}`);
+    },
+    getInvoiceStats() {
+      return request('/admin/invoices/stats');
+    },
+    getInvoice(id) {
+      return request(`/admin/invoices/${id}`);
+    },
+    issueInvoice(id) {
+      return request(`/admin/invoices/${id}/issue`, { method: 'POST' });
+    },
+    rejectInvoice(id, payload) {
+      return request(`/admin/invoices/${id}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
       });
     }
   }

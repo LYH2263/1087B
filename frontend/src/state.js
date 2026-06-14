@@ -14,6 +14,7 @@ export const state = {
   },
   cart: [],
   orders: [],
+  invoices: [],
   addresses: [],
   flashSales: {
     items: [],
@@ -26,6 +27,7 @@ export const state = {
     books: false,
     cart: false,
     orders: false,
+    invoices: false,
     addresses: false,
     admin: false,
     flashSales: false
@@ -38,7 +40,9 @@ export const state = {
     stats: null,
     editingBook: null,
     flashSales: [],
-    editingFlashSale: null
+    editingFlashSale: null,
+    invoices: [],
+    invoiceStats: null
   },
   profile: {
     editingAddress: null

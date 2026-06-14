@@ -17,6 +17,7 @@ const orderRoutes = require('./routes/orders');
 const addressRoutes = require('./routes/addresses');
 const adminRoutes = require('./routes/admin');
 const flashSaleRoutes = require('./routes/flashSales');
+const invoiceRoutes = require('./routes/invoices');
 
 const app = express();
 const fs = require('fs');
@@ -52,6 +53,7 @@ app.use('/api/orders', requireAuth, orderRoutes);
 app.use('/api/addresses', requireAuth, addressRoutes);
 app.use('/api/admin', requireAuth, requireRole('ADMIN'), adminRoutes);
 app.use('/api/flash-sales', flashSaleRoutes);
+app.use('/api/invoices', requireAuth, invoiceRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'NOT_FOUND' });

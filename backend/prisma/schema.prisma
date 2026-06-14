@@ -32,6 +32,17 @@ enum FlashSaleStatus {
   ENDED
 }
 
+enum InvoiceStatus {
+  PENDING
+  ISSUED
+  REJECTED
+}
+
+enum InvoiceTitleType {
+  PERSONAL
+  ENTERPRISE
+}
+
 enum PaymentMethod {
   WECHAT
   ALIPAY
@@ -54,6 +65,7 @@ model User {
   orders       Order[]
   passwordResets PasswordReset[]
   flashSaleOrders FlashSaleOrder[]
+  invoices Invoice[]
 }
 
 model Session {
@@ -150,6 +162,7 @@ model Order {
   user          User         @relation(fields: [userId], references: [id])
   items         OrderItem[]
   flashSaleOrder FlashSaleOrder?
+  invoice       Invoice?
 }
 
 model OrderItem {
@@ -197,4 +210,28 @@ model FlashSaleOrder {
   @@unique([flashSaleId, userId])
   @@index([flashSaleId])
   @@index([userId])
+}
+
+model Invoice {
+  id             String           @id @default(cuid())
+  orderId        String           @unique
+  userId         String
+  status         InvoiceStatus    @default(PENDING)
+  titleType      InvoiceTitleType
+  titleName      String
+  taxNumber      String?
+  email          String
+  invoiceNumber  String?
+  invoiceContent String?
+  pdfUrl         String?
+  rejectReason   String?
+  issuedAt       DateTime?
+  rejectedAt     DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  order          Order            @relation(fields: [orderId], references: [id])
+  user           User             @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([status])
 }

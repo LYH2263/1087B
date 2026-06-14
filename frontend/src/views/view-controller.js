@@ -61,6 +61,23 @@ export function createViewController({
     return map[status] || status;
   }
 
+  function formatInvoiceStatus(status) {
+    const map = {
+      PENDING: '待开具',
+      ISSUED: '已开具',
+      REJECTED: '已驳回'
+    };
+    return map[status] || status;
+  }
+
+  function formatInvoiceTitleType(type) {
+    const map = {
+      PERSONAL: '个人',
+      ENTERPRISE: '企业'
+    };
+    return map[type] || type;
+  }
+
   function setNavActive(view) {
     document.querySelectorAll('.nav-btn').forEach((btn) => {
       const active = btn.dataset.view === view;
@@ -417,9 +434,101 @@ export function createViewController({
             ${order.status === 'SHIPPED' ? `<button class="btn-primary" data-action="confirm-order" data-id="${order.id}">确认收货</button>` : ''}
             ${order.status === 'COMPLETED' && !order.reviewText ? `<button class="btn-outline" data-action="review-order" data-id="${order.id}">评价订单</button>` : ''}
             ${order.reviewText ? `<span class="badge">已评价 ${order.rating}⭐</span>` : ''}
+            ${['PAID', 'SHIPPED', 'COMPLETED'].includes(order.status) && !order.hasInvoice ? `<button class="btn-outline" data-action="apply-invoice" data-id="${order.id}">申请发票</button>` : ''}
+            ${order.hasInvoice ? `<span class="badge ${order.invoiceStatus === 'ISSUED' ? 'badge-active' : ''}">发票：${formatInvoiceStatus(order.invoiceStatus)}</span>` : ''}
           </div>
         </div>
       `
+      )
+      .join('');
+  }
+
+  function renderInvoices() {
+    viewTitle.innerHTML = `
+      <div>
+        <h2 class="text-xl font-semibold">我的发票</h2>
+        <p class="text-sm text-slate-500">发票申请记录与下载</p>
+      </div>
+    `;
+
+    if (!state.user) {
+      viewContent.innerHTML = `<div class="card p-6 text-slate-500">请先登录后查看发票。</div>`;
+      return;
+    }
+
+    if (state.loading.invoices) {
+      viewContent.innerHTML = `<div class="card p-6"><div class="animate-pulse space-y-4">
+        ${Array.from({ length: 3 }).map(() => '<div class="h-24 bg-slate-200 rounded-xl"></div>').join('')}
+      </div></div>`;
+      return;
+    }
+
+    if (state.invoices.length === 0) {
+      viewContent.innerHTML = `<div class="card p-6 text-slate-500">暂无发票记录</div>`;
+      return;
+    }
+
+    viewContent.innerHTML = state.invoices
+      .map(
+        (invoice) => {
+          const statusBadge = invoice.status === 'ISSUED'
+            ? '<span class="badge badge-active">已开具</span>'
+            : invoice.status === 'PENDING'
+              ? '<span class="badge">待开具</span>'
+              : '<span class="badge badge-inactive">已驳回</span>';
+
+          return `
+        <div class="card p-6 space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p class="text-xs text-slate-400">发票申请号 ${invoice.id}</p>
+              <h3 class="text-lg font-semibold">${formatInvoiceTitleType(invoice.titleType)} · ${invoice.titleName}</h3>
+            </div>
+            <div class="text-right">
+              ${statusBadge}
+              <p class="text-sm text-slate-500 mt-1">申请时间 ${new Date(invoice.createdAt).toLocaleString()}</p>
+            </div>
+          </div>
+          <div class="grid md:grid-cols-3 gap-3 text-sm">
+            <div class="bg-slate-50 rounded-xl p-3">
+              <p class="text-xs text-slate-400">关联订单</p>
+              <p class="font-medium">${invoice.orderId}</p>
+            </div>
+            <div class="bg-slate-50 rounded-xl p-3">
+              <p class="text-xs text-slate-400">发票金额</p>
+              <p class="font-medium">${formatCurrency(invoice.order?.total || 0)}</p>
+            </div>
+            <div class="bg-slate-50 rounded-xl p-3">
+              <p class="text-xs text-slate-400">接收邮箱</p>
+              <p class="font-medium">${invoice.email}</p>
+            </div>
+          </div>
+          ${invoice.taxNumber ? `
+          <div class="text-sm">
+            <span class="text-slate-400">企业税号：</span>
+            <span class="font-medium">${invoice.taxNumber}</span>
+          </div>
+          ` : ''}
+          ${invoice.status === 'ISSUED' && invoice.invoiceNumber ? `
+          <div class="text-sm">
+            <span class="text-slate-400">发票号码：</span>
+            <span class="font-medium">${invoice.invoiceNumber}</span>
+          </div>
+          <div class="bg-teal-50 border border-teal-100 rounded-xl p-3 text-sm text-teal-700 whitespace-pre-wrap">${escapeHtmlAttr(invoice.invoiceContent || '')}</div>
+          ` : ''}
+          ${invoice.status === 'REJECTED' && invoice.rejectReason ? `
+          <div class="bg-red-50 border border-red-100 rounded-xl p-3 text-sm text-red-700">
+            <p class="font-medium">驳回原因：</p>
+            <p>${escapeHtmlAttr(invoice.rejectReason)}</p>
+          </div>
+          ` : ''}
+          <div class="flex flex-wrap gap-2">
+            ${invoice.status === 'ISSUED' ? `<button class="btn-primary" data-action="download-invoice" data-id="${invoice.id}">下载发票</button>` : ''}
+            ${invoice.status === 'REJECTED' ? `<button class="btn-outline" data-action="apply-invoice" data-id="${invoice.orderId}">重新申请</button>` : ''}
+          </div>
+        </div>
+      `;
+        }
       )
       .join('');
   }
@@ -531,6 +640,7 @@ export function createViewController({
         <button class="btn-outline" data-action="admin-tab" data-tab="categories">分类管理</button>
         <button class="btn-outline" data-action="admin-tab" data-tab="orders">订单管理</button>
         <button class="btn-outline" data-action="admin-tab" data-tab="flash-sales">秒杀管理</button>
+        <button class="btn-outline" data-action="admin-tab" data-tab="invoices">发票管理</button>
       </div>
     `;
 
@@ -803,6 +913,69 @@ export function createViewController({
       `;
     }
 
+    if (state.admin.tab === 'invoices') {
+      const stats = state.admin.invoiceStats || { statusCounts: {} };
+      const invoiceCards = state.admin.invoices
+        .map(
+          (invoice) => {
+            const statusBadge = invoice.status === 'ISSUED'
+              ? '<span class="badge badge-active">已开具</span>'
+              : invoice.status === 'PENDING'
+                ? '<span class="badge">待开具</span>'
+                : '<span class="badge badge-inactive">已驳回</span>';
+
+            return `
+        <div class="border border-slate-200 rounded-xl p-4 space-y-3 hover-card">
+          <div class="flex justify-between items-start">
+            <div>
+              <p class="text-xs text-slate-400">发票申请号 ${invoice.id}</p>
+              <p class="font-semibold">${formatInvoiceTitleType(invoice.titleType)} · ${invoice.titleName}</p>
+            </div>
+            ${statusBadge}
+          </div>
+          <div class="text-xs text-slate-500">
+            <p>申请人：${invoice.user?.username || '-'} (${invoice.user?.email || '-'})</p>
+            <p>订单号：${invoice.orderId}</p>
+            <p>订单金额：${formatCurrency(invoice.order?.total || 0)}</p>
+            <p>接收邮箱：${invoice.email}</p>
+          </div>
+          ${invoice.taxNumber ? `<p class="text-xs text-slate-500">税号：${invoice.taxNumber}</p>` : ''}
+          ${invoice.invoiceNumber ? `<p class="text-xs text-slate-500">发票号码：${invoice.invoiceNumber}</p>` : ''}
+          ${invoice.status === 'REJECTED' && invoice.rejectReason ? `
+          <p class="text-xs text-red-600">驳回原因：${escapeHtmlAttr(invoice.rejectReason)}</p>
+          ` : ''}
+          <div class="flex flex-wrap gap-2">
+            ${invoice.status === 'PENDING' ? `<button class="btn-primary" data-action="admin-issue-invoice" data-id="${invoice.id}">开具发票</button>` : ''}
+            ${invoice.status === 'PENDING' ? `<button class="btn-outline" data-action="admin-reject-invoice" data-id="${invoice.id}">驳回</button>` : ''}
+            ${invoice.status === 'ISSUED' ? `<button class="btn-outline" data-action="admin-view-invoice" data-id="${invoice.id}">查看发票</button>` : ''}
+          </div>
+        </div>
+      `;
+          }
+        )
+        .join('');
+
+      content = `
+        <div class="card p-6 space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h3 class="text-lg font-semibold">发票统计</h3>
+              <p class="text-sm text-slate-500">发票申请与开具情况</p>
+            </div>
+          </div>
+          <div class="grid md:grid-cols-3 gap-3">
+            ${['PENDING', 'ISSUED', 'REJECTED'].map(status => `
+              <div class="bg-slate-50 rounded-xl p-3">
+                <p class="text-xs text-slate-400">${formatInvoiceStatus(status)}</p>
+                <p class="text-lg font-semibold">${stats.statusCounts?.[status] || 0}</p>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+        <div class="grid lg:grid-cols-2 gap-4">${invoiceCards || '<div class="text-slate-500">暂无发票申请</div>'}</div>
+      `;
+    }
+
     viewContent.innerHTML = `${adminTabs}${content}`;
   }
 
@@ -810,6 +983,7 @@ export function createViewController({
     books: renderBooks,
     cart: renderCart,
     orders: renderOrders,
+    invoices: renderInvoices,
     profile: renderProfile,
     admin: renderAdmin
   };
@@ -832,6 +1006,8 @@ export function createViewController({
   return {
     formatCurrency,
     formatStatus,
+    formatInvoiceStatus,
+    formatInvoiceTitleType,
     setNavActive,
     updateAuthUI,
     renderView,

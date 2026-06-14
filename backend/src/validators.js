@@ -123,6 +123,32 @@ const flashSalePurchaseSchema = z.object({
   paymentMethod: z.enum(['WECHAT', 'ALIPAY', 'CARD', 'COD'])
 });
 
+const taxNumberRule = z
+  .string()
+  .regex(/^[0-9A-HJ-NPQRTUWXY]{2}\d{6}[0-9A-HJ-NPQRTUWXY]{10}$/, '企业税号格式不正确');
+
+const invoiceApplySchema = z.object({
+  orderId: z.string().min(1, '请选择订单'),
+  titleType: z.enum(['PERSONAL', 'ENTERPRISE'], { required_error: '请选择抬头类型' }),
+  titleName: z.string().min(1, '请输入抬头名称'),
+  taxNumber: z.string().optional(),
+  email: z.string().email('邮箱格式不正确')
+}).refine((data) => {
+  if (data.titleType === 'ENTERPRISE') {
+    return !!data.taxNumber;
+  }
+  return true;
+}, { message: '企业抬头必须填写税号', path: ['taxNumber'] }).refine((data) => {
+  if (data.titleType === 'ENTERPRISE' && data.taxNumber) {
+    return /^[0-9A-HJ-NPQRTUWXY]{2}\d{6}[0-9A-HJ-NPQRTUWXY]{10}$/.test(data.taxNumber);
+  }
+  return true;
+}, { message: '企业税号格式不正确', path: ['taxNumber'] });
+
+const invoiceRejectSchema = z.object({
+  reason: z.string().min(1, '请填写驳回原因')
+});
+
 module.exports = {
   registerSchema,
   loginSchema,
@@ -138,5 +164,8 @@ module.exports = {
   reviewSchema,
   flashSaleCreateSchema,
   flashSaleUpdateSchema,
-  flashSalePurchaseSchema
+  flashSalePurchaseSchema,
+  invoiceApplySchema,
+  invoiceRejectSchema,
+  taxNumberRule
 };
