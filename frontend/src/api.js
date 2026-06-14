@@ -253,6 +253,29 @@ export const api = {
   getBookList(id) {
     return request(`/book-lists/${id}`);
   },
+  getBookQuestions(bookId, params = {}) {
+    const query = new URLSearchParams(params).toString();
+    return request(`/books/${bookId}/questions${query ? `?${query}` : ''}`);
+  },
+  createQuestion(bookId, payload) {
+    return request(`/books/${bookId}/questions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+  },
+  createAnswer(questionId, payload) {
+    return request(`/questions/${questionId}/answers`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+  },
+  likeAnswer(answerId) {
+    return request(`/answers/${answerId}/like`, {
+      method: 'POST'
+    });
+  },
   admin: {
     getBooks(params = {}) {
       const query = new URLSearchParams(params).toString();
@@ -412,6 +435,23 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
+    },
+    getQuestions(params = {}) {
+      const query = new URLSearchParams(params).toString();
+      return request(`/admin/questions${query ? `?${query}` : ''}`);
+    },
+    getAnswers(params = {}) {
+      const query = new URLSearchParams(params).toString();
+      return request(`/admin/answers${query ? `?${query}` : ''}`);
+    },
+    getQnaStats() {
+      return request('/admin/qna/stats');
+    },
+    deleteQuestion(id) {
+      return request(`/admin/questions/${id}`, { method: 'DELETE' });
+    },
+    deleteAnswer(id) {
+      return request(`/admin/answers/${id}`, { method: 'DELETE' });
     }
   }
 };

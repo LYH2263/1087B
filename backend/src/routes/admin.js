@@ -1102,4 +1102,176 @@ router.post('/book-lists/:id/reorder', asyncHandler(async (req, res) => {
   res.json(mapBookList(updated));
 }));
 
+function mapAdminQuestion(question) {
+  return {
+    id: question.id,
+    bookId: question.bookId,
+    content: question.content,
+    createdAt: question.createdAt,
+    updatedAt: question.updatedAt,
+    answerCount: question._count?.answers || 0,
+    user: question.user ? {
+      id: question.user.id,
+      username: question.user.username,
+      email: question.user.email,
+      phone: question.user.phone
+    } : null,
+    book: question.book ? {
+      id: question.book.id,
+      title: question.book.title,
+      author: question.book.author
+    } : null
+  };
+}
+
+function mapAdminAnswer(answer) {
+  return {
+    id: answer.id,
+    questionId: answer.questionId,
+    content: answer.content,
+    createdAt: answer.createdAt,
+    updatedAt: answer.updatedAt,
+    likeCount: answer._count?.likes || 0,
+    user: answer.user ? {
+      id: answer.user.id,
+      username: answer.user.username,
+      email: answer.user.email,
+      phone: answer.user.phone
+    } : null,
+    question: answer.question ? {
+      id: answer.question.id,
+      content: answer.question.content,
+      book: answer.question.book ? {
+        id: answer.question.book.id,
+        title: answer.question.book.title
+      } : null
+    } : null
+  };
+}
+
+router.get('/questions', asyncHandler(async (req, res) => {
+  const { keyword, bookId, sort = 'time' } = req.query;
+
+  const where = {};
+  if (keyword) {
+    where.OR = [
+      { content: { contains: String(keyword), mode: 'insensitive' } },
+      { user: { username: { contains: String(keyword), mode: 'insensitive' } } }
+    ];
+  }
+  if (bookId) {
+    where.bookId = String(bookId);
+  }
+
+  let orderBy = { createdAt: 'desc' };
+  if (sort === 'answers') {
+    orderBy = { answers: { _count: 'desc' } };
+  }
+
+  const questions = await prisma.question.findMany({
+    where,
+    include: {
+      user: { select: { id: true, username: true, email: true, phone: true } },
+      book: { select: { id: true, title: true, author: true } },
+      _count: { select: { answers: true } }
+    },
+    orderBy,
+    take: 200
+  });
+
+  res.json(questions.map(mapAdminQuestion));
+}));
+
+router.get('/answers', asyncHandler(async (req, res) => {
+  const { keyword, sort = 'time' } = req.query;
+
+  const where = {};
+  if (keyword) {
+    where.OR = [
+      { content: { contains: String(keyword), mode: 'insensitive' } },
+      { user: { username: { contains: String(keyword), mode: 'insensitive' } } }
+    ];
+  }
+
+  let orderBy = { createdAt: 'desc' };
+  if (sort === 'likes') {
+    orderBy = { likes: { _count: 'desc' } };
+  }
+
+  const answers = await prisma.answer.findMany({
+    where,
+    include: {
+      user: { select: { id: true, username: true, email: true, phone: true } },
+      question: {
+        include: {
+          book: { select: { id: true, title: true } }
+        }
+      },
+      _count: { select: { likes: true } }
+    },
+    orderBy,
+    take: 200
+  });
+
+  res.json(answers.map(mapAdminAnswer));
+}));
+
+router.get('/qna/stats', asyncHandler(async (req, res) => {
+  const [questionCount, answerCount, totalLikes] = await Promise.all([
+    prisma.question.count(),
+    prisma.answer.count(),
+    prisma.answerLike.count()
+  ]);
+
+  const recentQuestions = await prisma.question.count({
+    where: {
+      createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
+    }
+  });
+
+  const recentAnswers = await prisma.answer.count({
+    where: {
+      createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
+    }
+  });
+
+  res.json({
+    questionCount,
+    answerCount,
+    totalLikes,
+    recentQuestions,
+    recentAnswers
+  });
+}));
+
+router.delete('/questions/:id', asyncHandler(async (req, res) => {
+  const question = await prisma.question.findUnique({
+    where: { id: req.params.id }
+  });
+  if (!question) {
+    throw new ApiError(404, 'QUESTION_NOT_FOUND');
+  }
+
+  await prisma.question.delete({
+    where: { id: req.params.id }
+  });
+
+  res.json({ message: 'question deleted', id: req.params.id });
+}));
+
+router.delete('/answers/:id', asyncHandler(async (req, res) => {
+  const answer = await prisma.answer.findUnique({
+    where: { id: req.params.id }
+  });
+  if (!answer) {
+    throw new ApiError(404, 'ANSWER_NOT_FOUND');
+  }
+
+  await prisma.answer.delete({
+    where: { id: req.params.id }
+  });
+
+  res.json({ message: 'answer deleted', id: req.params.id });
+}));
+
 module.exports = router;

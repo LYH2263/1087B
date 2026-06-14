@@ -61,6 +61,10 @@ const toastMap = [
   [/BOOK_NOT_IN_LIST|book_not_in_list/i, '该书不在书单中'],
   [/BOOKS_NOT_IN_LIST|books_not_in_list/i, '部分书籍不在书单中'],
   [/BOOK_LIST_NOT_PUBLISHED|book_list_not_published/i, '书单未上线']
+  ,
+  [/QUESTION_NOT_FOUND|question_not_found/i, '问题不存在'],
+  [/ANSWER_NOT_FOUND|answer_not_found/i, '回答不存在'],
+  [/ANSWER_PERMISSION_DENIED|answer_permission_denied/i, '仅管理员或已购该书的用户可回答']
 ];
 
 function toChineseToast(message) {
@@ -163,7 +167,7 @@ async function loadAddresses() {
 async function loadAdmin() {
   if (!state.user || state.user.role !== 'ADMIN') return;
   state.loading.admin = true;
-  const [books, categories, orders, stats, flashSales, invoices, invoiceStats, bookLists] = await Promise.all([
+  const [books, categories, orders, stats, flashSales, invoices, invoiceStats, bookLists, questions, answers, qnaStats] = await Promise.all([
     api.admin.getBooks(),
     api.admin.getCategories(),
     api.admin.getOrders(),
@@ -171,7 +175,10 @@ async function loadAdmin() {
     api.admin.getFlashSales(),
     api.admin.getInvoices(),
     api.admin.getInvoiceStats(),
-    api.admin.getBookLists()
+    api.admin.getBookLists(),
+    api.admin.getQuestions(),
+    api.admin.getAnswers(),
+    api.admin.getQnaStats()
   ]);
   state.admin.books = books;
   state.admin.categories = categories;
@@ -181,6 +188,9 @@ async function loadAdmin() {
   state.admin.invoices = invoices;
   state.admin.invoiceStats = invoiceStats;
   state.admin.bookLists = bookLists;
+  state.admin.questions = questions;
+  state.admin.answers = answers;
+  state.admin.qnaStats = qnaStats;
   state.loading.admin = false;
 }
 
@@ -198,6 +208,51 @@ async function loadBookListDetail(id) {
   state.currentBookList = await api.getBookList(id);
   state.loading.bookListDetail = false;
   safeRender();
+}
+
+async function loadBookDetail(bookId) {
+  state.loading.bookDetail = true;
+  state.bookQuestions.loading = true;
+  safeRender();
+  try {
+    const book = state.books.find(b => b.id === bookId) || await api.getBooks().then(books => books.find(b => b.id === bookId));
+    state.currentBook = book || null;
+    const result = await api.getBookQuestions(bookId, {
+      page: state.bookQuestions.page,
+      pageSize: state.bookQuestions.pageSize,
+      sort: state.bookQuestions.sort
+    });
+    state.bookQuestions.items = result.items;
+    state.bookQuestions.total = result.total;
+    state.bookQuestions.totalPages = result.totalPages;
+    state.bookQuestions.page = result.page;
+    state.bookQuestions.sort = result.sort;
+  } finally {
+    state.loading.bookDetail = false;
+    state.bookQuestions.loading = false;
+    safeRender();
+  }
+}
+
+async function reloadBookQuestions() {
+  if (!state.currentBook) return;
+  state.bookQuestions.loading = true;
+  safeRender();
+  try {
+    const result = await api.getBookQuestions(state.currentBook.id, {
+      page: state.bookQuestions.page,
+      pageSize: state.bookQuestions.pageSize,
+      sort: state.bookQuestions.sort
+    });
+    state.bookQuestions.items = result.items;
+    state.bookQuestions.total = result.total;
+    state.bookQuestions.totalPages = result.totalPages;
+    state.bookQuestions.page = result.page;
+    state.bookQuestions.sort = result.sort;
+  } finally {
+    state.bookQuestions.loading = false;
+    safeRender();
+  }
 }
 
 async function loadFlashSales() {
@@ -306,6 +361,7 @@ const viewLoaders = {
   },
   'book-lists': loadBookLists,
   'book-list-detail': async () => {},
+  'book-detail': async () => {},
   cart: async () => {
     await loadCart();
     await loadAddresses();
@@ -428,6 +484,8 @@ bindEventHandlers({
   loadFlashSales,
   loadBookLists,
   loadBookListDetail,
+  loadBookDetail,
+  reloadBookQuestions,
   safeRender,
   openModal,
   closeModal,

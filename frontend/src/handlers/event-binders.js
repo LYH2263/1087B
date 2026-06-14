@@ -15,6 +15,8 @@ import {
   invoiceRejectSchema,
   adminBookListSchema,
   bookListAddBookSchema,
+  questionSchema,
+  answerSchema,
   COVER_MAX_SIZE,
   COVER_TYPES
 } from '../validation/schemas.js';
@@ -150,6 +152,8 @@ export function bindEventHandlers({
   loadFlashSales,
   loadBookLists,
   loadBookListDetail,
+  loadBookDetail,
+  reloadBookQuestions,
   safeRender,
   openModal,
   closeModal,
@@ -501,6 +505,46 @@ export function bindEventHandlers({
       state.admin.selectedBookList = updated;
       showToast('书籍已添加', 'success');
       await loadAdmin();
+      safeRender();
+    },
+    question: async (form) => {
+      if (!state.user) {
+        openLoginModal();
+        return;
+      }
+      const data = getFormData(form);
+      const parsed = questionSchema.parse({ content: data.content });
+      
+      if (!state.currentBook) {
+        showToast('书籍信息不存在', 'error');
+        return;
+      }
+      
+      await api.createQuestion(state.currentBook.id, parsed);
+      showToast('提问成功', 'success');
+      form.reset();
+      state.bookQuestions.page = 1;
+      await reloadBookQuestions();
+      safeRender();
+    },
+    answer: async (form) => {
+      if (!state.user) {
+        openLoginModal();
+        return;
+      }
+      const data = getFormData(form);
+      const questionId = form.dataset.questionId;
+      const parsed = answerSchema.parse({ content: data.content });
+      
+      if (!questionId) {
+        showToast('问题不存在', 'error');
+        return;
+      }
+      
+      await api.createAnswer(questionId, parsed);
+      showToast('回答成功', 'success');
+      form.reset();
+      await reloadBookQuestions();
       safeRender();
     }
   };
@@ -1021,6 +1065,73 @@ export function bindEventHandlers({
       const bookIds = newOrder.map(item => item.bookId);
       const updated = await api.admin.reorderBooksInList(list.id, { bookIds });
       state.admin.selectedBookList = updated;
+      await loadAdmin();
+      safeRender();
+    },
+    'view-book-detail': async (target) => {
+      const bookId = target.dataset.id;
+      await loadBookDetail(bookId);
+      state.view = 'book-detail';
+      safeRender();
+    },
+    'back-to-books': async () => {
+      state.currentBook = null;
+      state.bookQuestions = { items: [], total: 0, page: 1, sort: 'time', loading: false };
+      state.view = 'books';
+      await loadBooks(state.bookSearch);
+      safeRender();
+    },
+    'like-answer': async (target) => {
+      if (!state.user) {
+        openLoginModal();
+        return;
+      }
+      const answerId = target.dataset.id;
+      const result = await api.likeAnswer(answerId);
+      await reloadBookQuestions();
+      safeRender();
+      showToast(result.liked ? '点赞成功' : '已取消点赞', 'success');
+    },
+    'qna-sort': async (target) => {
+      const sort = target.dataset.sort;
+      state.bookQuestions.sort = sort;
+      state.bookQuestions.page = 1;
+      await reloadBookQuestions();
+      safeRender();
+    },
+    'qna-prev-page': async () => {
+      if (state.bookQuestions.page <= 1) return;
+      state.bookQuestions.page--;
+      await reloadBookQuestions();
+      safeRender();
+    },
+    'qna-next-page': async () => {
+      const pageSize = state.bookQuestions.pageSize || 10;
+      const maxPage = Math.ceil((state.bookQuestions.total || 0) / pageSize);
+      if (state.bookQuestions.page >= maxPage) return;
+      state.bookQuestions.page++;
+      await reloadBookQuestions();
+      safeRender();
+    },
+    'admin-qna-tab': async (target) => {
+      state.admin.qnaTab = target.dataset.tab;
+      safeRender();
+    },
+    'admin-delete-question': async (target) => {
+      if (!confirm('确定要删除这个问题吗？删除后无法恢复。')) {
+        return;
+      }
+      await api.admin.deleteQuestion(target.dataset.id);
+      showToast('问题已删除', 'success');
+      await loadAdmin();
+      safeRender();
+    },
+    'admin-delete-answer': async (target) => {
+      if (!confirm('确定要删除这个回答吗？删除后无法恢复。')) {
+        return;
+      }
+      await api.admin.deleteAnswer(target.dataset.id);
+      showToast('回答已删除', 'success');
       await loadAdmin();
       safeRender();
     }

@@ -12,6 +12,16 @@ export const state = {
     minPrice: '',
     maxPrice: ''
   },
+  currentBook: null,
+  bookQuestions: {
+    items: [],
+    total: 0,
+    page: 1,
+    pageSize: 10,
+    totalPages: 0,
+    sort: 'time',
+    loading: false
+  },
   cart: [],
   orders: [],
   invoices: [],
@@ -34,7 +44,8 @@ export const state = {
     admin: false,
     flashSales: false,
     bookLists: false,
-    bookListDetail: false
+    bookListDetail: false,
+    bookDetail: false
   },
   admin: {
     tab: 'books',
@@ -49,7 +60,11 @@ export const state = {
     invoiceStats: null,
     bookLists: [],
     editingBookList: null,
-    selectedBookList: null
+    selectedBookList: null,
+    questions: [],
+    answers: [],
+    qnaStats: null,
+    qnaTab: 'questions'
   },
   profile: {
     editingAddress: null

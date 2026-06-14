@@ -168,6 +168,14 @@ const bookListReorderBooksSchema = z.object({
   bookIds: z.array(z.string()).min(1, '至少需要一本书籍')
 });
 
+const questionSchema = z.object({
+  content: z.string().min(2, '问题内容至少2个字符').max(1000, '问题内容最多1000个字符').trim()
+});
+
+const answerSchema = z.object({
+  content: z.string().min(2, '回答内容至少2个字符').max(2000, '回答内容最多2000个字符').trim()
+});
+
 module.exports = {
   registerSchema,
   loginSchema,
@@ -190,5 +198,7 @@ module.exports = {
   bookListCreateSchema,
   bookListUpdateSchema,
   bookListAddBookSchema,
-  bookListReorderBooksSchema
+  bookListReorderBooksSchema,
+  questionSchema,
+  answerSchema
 };

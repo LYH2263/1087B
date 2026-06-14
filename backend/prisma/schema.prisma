@@ -72,6 +72,9 @@ model User {
   passwordResets PasswordReset[]
   flashSaleOrders FlashSaleOrder[]
   invoices Invoice[]
+  questions    Question[]
+  answers      Answer[]
+  answerLikes  AnswerLike[]
 }
 
 model Session {
@@ -120,6 +123,7 @@ model Book {
   orderItems  OrderItem[]
   flashSales  FlashSale[]
   listItems   BookListItem[]
+  questions   Question[]
 }
 
 model CartItem {
@@ -268,4 +272,47 @@ model BookListItem {
 
   @@unique([bookListId, bookId])
   @@index([bookListId, sortOrder])
+}
+
+model Question {
+  id        String   @id @default(cuid())
+  bookId    String
+  userId    String
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  book      Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  answers   Answer[]
+
+  @@index([bookId, createdAt])
+  @@index([userId])
+}
+
+model Answer {
+  id        String       @id @default(cuid())
+  questionId String
+  userId    String
+  content   String
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  question  Question     @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  likes     AnswerLike[]
+
+  @@index([questionId, createdAt])
+  @@index([userId])
+}
+
+model AnswerLike {
+  id        String   @id @default(cuid())
+  answerId  String
+  userId    String
+  createdAt DateTime @default(now())
+  answer    Answer   @relation(fields: [answerId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([answerId, userId])
+  @@index([answerId])
+  @@index([userId])
 }

@@ -261,7 +261,10 @@ export function createViewController({
           </div>
           <div class="flex items-center justify-between">
             <p class="text-lg font-semibold text-slate-900">${formatCurrency(book.price)}</p>
-            <button class="btn-primary" data-action="add-to-cart" data-id="${book.id}">加入购物车</button>
+            <div class="flex gap-2">
+              <button class="btn-outline" data-action="view-book-detail" data-id="${book.id}">详情</button>
+              <button class="btn-primary" data-action="add-to-cart" data-id="${book.id}">加入购物车</button>
+            </div>
           </div>
         </div>
       `
@@ -651,6 +654,7 @@ export function createViewController({
         <button class="btn-outline" data-action="admin-tab" data-tab="flash-sales">秒杀管理</button>
         <button class="btn-outline" data-action="admin-tab" data-tab="invoices">发票管理</button>
         <button class="btn-outline" data-action="admin-tab" data-tab="book-lists">书单管理</button>
+        <button class="btn-outline" data-action="admin-tab" data-tab="qna">问答管理</button>
       </div>
     `;
 
@@ -1167,6 +1171,115 @@ export function createViewController({
       }
     }
 
+    if (state.admin.tab === 'qna') {
+      const qnaStats = state.admin.qnaStats || {};
+      const qnaTab = state.admin.qnaTab || 'questions';
+
+      let qnaSubTabs = `
+        <div class="flex gap-2 mb-4">
+          <button class="btn-outline text-sm ${qnaTab === 'questions' ? 'btn-primary' : ''}" data-action="admin-qna-tab" data-tab="questions">问题管理 (${qnaStats.questionCount || 0})</button>
+          <button class="btn-outline text-sm ${qnaTab === 'answers' ? 'btn-primary' : ''}" data-action="admin-qna-tab" data-tab="answers">回答管理 (${qnaStats.answerCount || 0})</button>
+        </div>
+      `;
+
+      let qnaStatsHtml = `
+        <div class="card p-5 mb-4">
+          <div class="grid md:grid-cols-5 gap-3">
+            <div class="bg-slate-50 rounded-xl p-3">
+              <p class="text-xs text-slate-400">问题总数</p>
+              <p class="text-xl font-semibold">${qnaStats.questionCount || 0}</p>
+            </div>
+            <div class="bg-slate-50 rounded-xl p-3">
+              <p class="text-xs text-slate-400">回答总数</p>
+              <p class="text-xl font-semibold">${qnaStats.answerCount || 0}</p>
+            </div>
+            <div class="bg-slate-50 rounded-xl p-3">
+              <p class="text-xs text-slate-400">点赞总数</p>
+              <p class="text-xl font-semibold">${qnaStats.totalLikes || 0}</p>
+            </div>
+            <div class="bg-teal-50 rounded-xl p-3">
+              <p class="text-xs text-slate-400">近7天新问题</p>
+              <p class="text-xl font-semibold text-teal-700">${qnaStats.recentQuestions || 0}</p>
+            </div>
+            <div class="bg-teal-50 rounded-xl p-3">
+              <p class="text-xs text-slate-400">近7天新回答</p>
+              <p class="text-xl font-semibold text-teal-700">${qnaStats.recentAnswers || 0}</p>
+            </div>
+          </div>
+        </div>
+      `;
+
+      let qnaListHtml = '';
+      if (qnaTab === 'questions') {
+        const questionRows = (state.admin.questions || [])
+          .map(
+            (q) => `
+            <div class="border border-slate-200 rounded-xl p-4 flex flex-col gap-3 hover-card">
+              <div class="flex justify-between items-start gap-3">
+                <div class="flex-1 min-w-0">
+                  <p class="font-medium text-slate-800 whitespace-pre-wrap break-words">${escapeHtmlAttr(q.content)}</p>
+                  <div class="flex flex-wrap gap-2 mt-2 text-xs text-slate-500">
+                    <span>书籍：${q.book?.title || '-'}</span>
+                    <span>提问人：${q.user?.username || '-'}</span>
+                    <span>时间：${new Date(q.createdAt).toLocaleString()}</span>
+                  </div>
+                </div>
+                <div class="flex flex-wrap gap-2 items-center flex-shrink-0">
+                  <span class="badge">${q.answerCount || 0} 回答</span>
+                  <button class="btn-outline text-red-600 text-sm" data-action="admin-delete-question" data-id="${q.id}">删除</button>
+                </div>
+              </div>
+            </div>
+          `
+          )
+          .join('');
+
+        qnaListHtml = `
+          <div class="card p-5 space-y-4">
+            <h3 class="text-lg font-semibold">问题列表</h3>
+            <div class="space-y-3">
+              ${questionRows || '<div class="text-slate-500 text-center py-6">暂无问题</div>'}
+            </div>
+          </div>
+        `;
+      } else {
+        const answerRows = (state.admin.answers || [])
+          .map(
+            (a) => `
+            <div class="border border-slate-200 rounded-xl p-4 flex flex-col gap-3 hover-card">
+              <div class="flex justify-between items-start gap-3">
+                <div class="flex-1 min-w-0">
+                  <p class="font-medium text-slate-800 whitespace-pre-wrap break-words">${escapeHtmlAttr(a.content)}</p>
+                  <div class="flex flex-wrap gap-2 mt-2 text-xs text-slate-500">
+                    <span>书籍：${a.question?.book?.title || '-'}</span>
+                    <span>问题：${escapeHtmlAttr(a.question?.content || '').slice(0, 50)}...</span>
+                    <span>回答人：${a.user?.username || '-'}</span>
+                    <span>时间：${new Date(a.createdAt).toLocaleString()}</span>
+                  </div>
+                </div>
+                <div class="flex flex-wrap gap-2 items-center flex-shrink-0">
+                  <span class="badge">👍 ${a.likeCount || 0}</span>
+                  <button class="btn-outline text-red-600 text-sm" data-action="admin-delete-answer" data-id="${a.id}">删除</button>
+                </div>
+              </div>
+            </div>
+          `
+          )
+          .join('');
+
+        qnaListHtml = `
+          <div class="card p-5 space-y-4">
+            <h3 class="text-lg font-semibold">回答列表</h3>
+            <div class="space-y-3">
+              ${answerRows || '<div class="text-slate-500 text-center py-6">暂无回答</div>'}
+            </div>
+          </div>
+        `;
+      }
+
+      content = qnaStatsHtml + qnaSubTabs + qnaListHtml;
+    }
+
     viewContent.innerHTML = `${adminTabs}${content}`;
   }
 
@@ -1329,6 +1442,201 @@ export function createViewController({
     `;
   }
 
+  function renderBookDetail() {
+    const book = state.currentBook;
+    const questions = state.bookQuestions.items || [];
+    const qnaSort = state.bookQuestions.sort || 'time';
+    const currentPage = state.bookQuestions.page || 1;
+    const totalPages = state.bookQuestions.totalPages || 0;
+    const total = state.bookQuestions.total || 0;
+
+    viewTitle.innerHTML = `
+      <div class="flex items-center gap-4">
+        <button class="btn-outline" data-action="back-to-books">← 返回列表</button>
+        <div>
+          <h2 class="text-xl font-semibold">书籍详情</h2>
+          <p class="text-sm text-slate-500">查看书籍信息与读者问答</p>
+        </div>
+      </div>
+    `;
+
+    if (state.loading.bookDetail || state.bookQuestions.loading) {
+      viewContent.innerHTML = `
+        <div class="card p-6">
+          <div class="animate-pulse space-y-6">
+            <div class="flex gap-6">
+              <div class="w-48 h-64 bg-slate-200 rounded-xl"></div>
+              <div class="flex-1 space-y-4">
+                <div class="h-8 bg-slate-200 rounded w-3/4"></div>
+                <div class="h-4 bg-slate-100 rounded w-1/2"></div>
+                <div class="h-32 bg-slate-100 rounded"></div>
+              </div>
+            </div>
+            <div class="h-96 bg-slate-100 rounded-xl"></div>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    if (!book) {
+      viewContent.innerHTML = `<div class="card p-6 text-slate-500">书籍不存在或已下架</div>`;
+      return;
+    }
+
+    const questionItemsHtml = questions.map((q) => {
+      const answersHtml = (q.answers || []).map((a) => {
+        const likeBtnClass = a.hasLiked ? 'btn-primary' : 'btn-outline';
+        const adminBadge = a.isAdmin ? '<span class="badge badge-active ml-2">管理员</span>' : '';
+        return `
+          <div class="border-l-4 border-slate-200 pl-4 py-3">
+            <div class="flex items-start justify-between gap-3">
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 mb-1">
+                  <span class="text-sm font-medium text-slate-700">${escapeHtmlAttr(a.user?.username || '匿名用户')}</span>
+                  ${adminBadge}
+                  <span class="text-xs text-slate-400">${new Date(a.createdAt).toLocaleString()}</span>
+                </div>
+                <p class="text-sm text-slate-700 whitespace-pre-wrap break-words">${escapeHtmlAttr(a.content)}</p>
+              </div>
+              <button 
+                class="${likeBtnClass} text-sm flex-shrink-0 flex items-center gap-1" 
+                data-action="like-answer" 
+                data-id="${a.id}"
+                data-liked="${a.hasLiked}"
+              >
+                <span>${a.hasLiked ? '❤️' : '🤍'}</span>
+                <span>${a.likeCount || 0}</span>
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      const noAnswers = (q.answers || []).length === 0 ? '<p class="text-sm text-slate-400 py-2">暂无回答，快来抢沙发！</p>' : '';
+
+      return `
+        <div class="border border-slate-200 rounded-xl p-5 space-y-4 bg-white">
+          <div class="flex items-start justify-between gap-3">
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="text-sm font-semibold text-slate-800">${escapeHtmlAttr(q.user?.username || '匿名用户')}</span>
+                <span class="text-xs text-slate-400">${new Date(q.createdAt).toLocaleString()}</span>
+                <span class="badge ml-auto">${q.answerCount || 0} 个回答</span>
+              </div>
+              <p class="text-slate-800 whitespace-pre-wrap break-words">${escapeHtmlAttr(q.content)}</p>
+            </div>
+          </div>
+          
+          <div class="space-y-2">
+            ${answersHtml}
+            ${noAnswers}
+          </div>
+
+          <form data-form="answer" data-question-id="${q.id}" class="space-y-3 pt-2 border-t border-slate-100" novalidate>
+            <textarea 
+              class="input" 
+              name="content" 
+              rows="2" 
+              placeholder="写下你的回答...（管理员或已购买过的用户可回答）" 
+              required
+            ></textarea>
+            <div class="flex justify-end">
+              <button class="btn-primary text-sm" type="submit">提交回答</button>
+            </div>
+          </form>
+        </div>
+      `;
+    }).join('');
+
+    const paginationHtml = totalPages > 1 ? `
+      <div class="flex justify-center items-center gap-2 pt-4">
+        <button 
+          class="btn-outline" 
+          data-action="qna-prev-page"
+          ${currentPage <= 1 ? 'disabled' : ''}
+        >上一页</button>
+        <span class="text-sm text-slate-500">第 ${currentPage} / ${totalPages} 页（共 ${total} 个问题）</span>
+        <button 
+          class="btn-outline" 
+          data-action="qna-next-page"
+          ${currentPage >= totalPages ? 'disabled' : ''}
+        >下一页</button>
+      </div>
+    ` : '';
+
+    viewContent.innerHTML = `
+      <div class="card p-6 mb-6">
+        <div class="flex flex-col md:flex-row gap-8">
+          <div class="w-full md:w-56 h-72 rounded-xl overflow-hidden bg-slate-100 flex-shrink-0 mx-auto md:mx-0">
+            <img src="${book.coverUrl}" alt="${book.title}" class="w-full h-full object-contain" />
+          </div>
+          <div class="flex-1 space-y-4">
+            <div>
+              <h2 class="text-2xl font-bold mb-1">${book.title}</h2>
+              <p class="text-slate-500">${book.author}</p>
+            </div>
+            <div class="flex flex-wrap gap-3">
+              <span class="badge badge-active">${book.category?.name || '未分类'}</span>
+              <span class="badge">库存 ${book.stock} 本</span>
+              <span class="badge">销量 ${book.sales}</span>
+              <span class="badge">ISBN: ${book.isbn}</span>
+            </div>
+            <div class="pt-2">
+              <p class="text-xs text-slate-400 mb-1">简介</p>
+              <p class="text-slate-700 whitespace-pre-wrap">${escapeHtmlAttr(book.description)}</p>
+            </div>
+            <div class="flex items-center gap-4 pt-2">
+              <p class="text-3xl font-bold text-red-500">${formatCurrency(book.price)}</p>
+              <button class="btn-primary text-lg px-6" data-action="add-to-cart" data-id="${book.id}">加入购物车</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card p-6">
+        <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
+          <div>
+            <h3 class="text-xl font-semibold">💬 读者问答</h3>
+            <p class="text-sm text-slate-500">共 ${total} 个问题 · 登录用户可提问，管理员或已购读者可回答</p>
+          </div>
+          <div class="flex gap-2">
+            <button 
+              class="btn-outline text-sm ${qnaSort === 'time' ? 'btn-primary' : ''}" 
+              data-action="qna-sort" 
+              data-sort="time"
+            >最新</button>
+            <button 
+              class="btn-outline text-sm ${qnaSort === 'hot' ? 'btn-primary' : ''}" 
+              data-action="qna-sort" 
+              data-sort="hot"
+            >最热</button>
+          </div>
+        </div>
+
+        <form data-form="question" class="space-y-3 mb-6" novalidate>
+          <textarea 
+            class="input" 
+            name="content" 
+            rows="3" 
+            placeholder="有什么关于这本书的问题？登录后可提问..." 
+            required
+          ></textarea>
+          <div class="flex justify-between items-center">
+            <p class="text-xs text-slate-400">* 请文明发言，违规内容将被删除</p>
+            <button class="btn-primary" type="submit">${state.user ? '提交问题' : '登录后提问'}</button>
+          </div>
+        </form>
+
+        <div class="space-y-4">
+          ${questionItemsHtml || '<div class="card p-6 text-center text-slate-500">暂无问题，快来提第一个问题吧！</div>'}
+        </div>
+
+        ${paginationHtml}
+      </div>
+    `;
+  }
+
   const viewRenderers = {
     books: renderBooks,
     cart: renderCart,
@@ -1337,7 +1645,8 @@ export function createViewController({
     profile: renderProfile,
     admin: renderAdmin,
     'book-lists': renderBookLists,
-    'book-list-detail': renderBookListDetail
+    'book-list-detail': renderBookListDetail,
+    'book-detail': renderBookDetail
   };
 
   function renderView() {
