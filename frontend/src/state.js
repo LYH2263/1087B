@@ -1,3 +1,6 @@
+const COMPARISON_STORAGE_KEY = 'book_comparison_items';
+const MAX_COMPARISON_ITEMS = 4;
+
 export const state = {
   user: null,
   view: 'books',
@@ -35,6 +38,9 @@ export const state = {
     loading: false,
     purchaseLoading: {}
   },
+  comparison: {
+    items: []
+  },
   loading: {
     books: false,
     cart: false,
@@ -70,6 +76,68 @@ export const state = {
     editingAddress: null
   }
 };
+
+export function initComparison() {
+  try {
+    const stored = localStorage.getItem(COMPARISON_STORAGE_KEY);
+    if (stored) {
+      state.comparison.items = JSON.parse(stored);
+    }
+  } catch (e) {
+    state.comparison.items = [];
+  }
+}
+
+export function saveComparison() {
+  try {
+    localStorage.setItem(COMPARISON_STORAGE_KEY, JSON.stringify(state.comparison.items));
+  } catch (e) {
+    // ignore
+  }
+}
+
+export function addToComparison(bookId) {
+  if (state.comparison.items.includes(bookId)) {
+    return { success: false, reason: 'duplicate' };
+  }
+  if (state.comparison.items.length >= MAX_COMPARISON_ITEMS) {
+    return { success: false, reason: 'limit' };
+  }
+  state.comparison.items.push(bookId);
+  saveComparison();
+  return { success: true };
+}
+
+export function removeFromComparison(bookId) {
+  const index = state.comparison.items.indexOf(bookId);
+  if (index > -1) {
+    state.comparison.items.splice(index, 1);
+    saveComparison();
+    return true;
+  }
+  return false;
+}
+
+export function clearComparison() {
+  state.comparison.items = [];
+  saveComparison();
+}
+
+export function isInComparison(bookId) {
+  return state.comparison.items.includes(bookId);
+}
+
+export function getComparisonCount() {
+  return state.comparison.items.length;
+}
+
+export function getMaxComparisonItems() {
+  return MAX_COMPARISON_ITEMS;
+}
+
+export function getComparisonBooks() {
+  return state.books.filter(book => state.comparison.items.includes(book.id));
+}
 
 export function normalizeBookSearch(params = {}) {
   return {

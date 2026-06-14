@@ -7,6 +7,8 @@ export function createViewController({
   userChip,
   adminNavBtn,
   adminNavSection,
+  comparisonBar,
+  comparisonNavBadge,
   escapeHtmlAttr,
   showToast
 }) {
@@ -93,6 +95,67 @@ export function createViewController({
       btn.classList.toggle('bg-slate-200', active);
       btn.classList.toggle('text-slate-900', active);
     });
+  }
+
+  function updateComparisonUI() {
+    const count = state.comparison.items.length;
+    const maxItems = 4;
+
+    if (comparisonNavBadge) {
+      if (count > 0) {
+        comparisonNavBadge.textContent = count;
+        comparisonNavBadge.classList.remove('hidden');
+      } else {
+        comparisonNavBadge.classList.add('hidden');
+      }
+    }
+
+    if (comparisonBar) {
+      if (count > 0) {
+        const books = state.books.filter(book => state.comparison.items.includes(book.id));
+        const activeBooks = books.filter(b => b.status === 'ACTIVE');
+        const inactiveCount = books.length - activeBooks.length;
+
+        const bookPreviews = books
+          .map(
+            (book) => `
+            <div class="comparison-bar-item relative flex-shrink-0 ${book.status !== 'ACTIVE' ? 'opacity-60' : ''}">
+              <img src="${book.coverUrl}" alt="${book.title}" class="w-12 h-16 object-contain rounded-lg bg-slate-100" />
+              <button class="comparison-bar-remove absolute -top-1 -right-1 bg-red-500 text-white w-5 h-5 rounded-full flex items-center justify-center text-xs hover:bg-red-600" data-action="remove-from-comparison" data-id="${book.id}">×</button>
+              ${book.status !== 'ACTIVE' ? '<span class="absolute -bottom-1 left-0 right-0 text-[10px] bg-red-500 text-white text-center rounded">已下架</span>' : ''}
+            </div>
+          `
+          )
+          .join('');
+
+        comparisonBar.innerHTML = `
+          <div class="comparison-bar-content mx-4 mb-4 card p-4">
+            <div class="flex flex-wrap items-center justify-between gap-4">
+              <div class="flex items-center gap-4">
+                <div class="flex items-center gap-2">
+                  <span class="text-2xl">📚</span>
+                  <div>
+                    <p class="font-semibold">书籍对比</p>
+                    <p class="text-sm text-slate-500">已选择 ${count} / ${maxItems} 本${inactiveCount > 0 ? `（${inactiveCount} 本已下架）` : ''}</p>
+                  </div>
+                </div>
+                <div class="flex items-center gap-2">
+                  ${bookPreviews}
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <button class="btn-outline" data-action="clear-comparison">清空</button>
+                <button class="btn-primary" data-action="go-to-comparison" ${activeBooks.length < 2 ? 'disabled' : ''}>${activeBooks.length < 2 ? '至少选择2本' : '去对比'}</button>
+              </div>
+            </div>
+          </div>
+        `;
+        comparisonBar.classList.remove('hidden');
+      } else {
+        comparisonBar.classList.add('hidden');
+        comparisonBar.innerHTML = '';
+      }
+    }
   }
 
   function updateAuthUI() {
@@ -245,8 +308,24 @@ export function createViewController({
 
     const bookCards = state.books
       .map(
-        (book) => `
-        <div class="card hover-card p-4 flex flex-col gap-3">
+        (book) => {
+          const isInComparison = state.comparison.items.includes(book.id);
+          const isInactive = book.status !== 'ACTIVE';
+          return `
+        <div class="card hover-card p-4 flex flex-col gap-3 ${isInactive ? 'opacity-60' : ''}" data-book-id="${book.id}">
+          <div class="flex justify-between items-start">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" 
+                class="comparison-checkbox w-4 h-4 text-teal-600 rounded focus:ring-teal-500" 
+                data-action="toggle-comparison" 
+                data-id="${book.id}"
+                ${isInComparison ? 'checked' : ''}
+                ${isInactive ? 'disabled' : ''}
+              />
+              <span class="text-xs text-slate-600">加入对比</span>
+            </label>
+            ${isInactive ? '<span class="badge badge-inactive">已下架</span>' : ''}
+          </div>
           <div class="rounded-xl overflow-hidden h-44 bg-slate-100">
             <img src="${book.coverUrl}" alt="${book.title}" class="w-full h-full object-contain" />
           </div>
@@ -260,14 +339,15 @@ export function createViewController({
             </div>
           </div>
           <div class="flex items-center justify-between">
-            <p class="text-lg font-semibold text-slate-900">${formatCurrency(book.price)}</p>
+            <p class="text-lg font-semibold text-slate-900 ${isInactive ? 'line-through text-slate-400' : ''}">${formatCurrency(book.price)}</p>
             <div class="flex gap-2">
               <button class="btn-outline" data-action="view-book-detail" data-id="${book.id}">详情</button>
-              <button class="btn-primary" data-action="add-to-cart" data-id="${book.id}">加入购物车</button>
+              <button class="btn-primary" data-action="add-to-cart" data-id="${book.id}" ${isInactive ? 'disabled' : ''}>${isInactive ? '暂不可购' : '加入购物车'}</button>
             </div>
           </div>
         </div>
-      `
+      `;
+        }
       )
       .join('');
 
@@ -1637,6 +1717,166 @@ export function createViewController({
     `;
   }
 
+  function renderComparison() {
+    viewTitle.innerHTML = `
+      <div>
+        <h2 class="text-xl font-semibold">书籍对比</h2>
+        <p class="text-sm text-slate-500">多维度对比，帮您找到最合适的书籍</p>
+      </div>
+    `;
+
+    const allBooks = state.books.filter(book => state.comparison.items.includes(book.id));
+    const activeBooks = allBooks.filter(b => b.status === 'ACTIVE');
+    const inactiveBooks = allBooks.filter(b => b.status !== 'ACTIVE');
+
+    if (allBooks.length === 0) {
+      viewContent.innerHTML = `
+        <div class="card p-12 text-center">
+          <div class="text-6xl mb-4">📚</div>
+          <h3 class="text-xl font-semibold mb-2">暂无对比书籍</h3>
+          <p class="text-slate-500 mb-6">请在书籍列表中勾选"加入对比"，最多可选择 4 本书</p>
+          <button class="btn-primary" data-action="back-to-books">去选书</button>
+        </div>
+      `;
+      return;
+    }
+
+    const fields = [
+      { key: 'cover', label: '封面', type: 'cover' },
+      { key: 'title', label: '书名', type: 'text' },
+      { key: 'author', label: '作者', type: 'text' },
+      { key: 'price', label: '价格', type: 'currency' },
+      { key: 'stock', label: '库存', type: 'number' },
+      { key: 'category', label: '分类', type: 'category' },
+      { key: 'sales', label: '销量', type: 'number' },
+      { key: 'isbn', label: 'ISBN', type: 'text' },
+      { key: 'status', label: '状态', type: 'status' },
+      { key: 'actions', label: '操作', type: 'actions' }
+    ];
+
+    function getFieldValue(book, field) {
+      if (field.type === 'cover') {
+        return `<img src="${book.coverUrl}" alt="${book.title}" class="w-24 h-32 object-contain rounded-lg bg-slate-100" />`;
+      }
+      if (field.type === 'category') {
+        return book.category?.name || '未分类';
+      }
+      if (field.type === 'currency') {
+        return formatCurrency(book[field.key]);
+      }
+      if (field.type === 'status') {
+        const isActive = book.status === 'ACTIVE';
+        return `<span class="badge ${isActive ? 'badge-active' : 'badge-inactive'}">${isActive ? '上架中' : '已下架'}</span>`;
+      }
+      if (field.type === 'actions') {
+        const isInactive = book.status !== 'ACTIVE';
+        return `
+          <div class="flex flex-wrap gap-2">
+            <button class="btn-outline" data-action="remove-from-comparison" data-id="${book.id}">移除</button>
+            <button class="btn-primary" data-action="add-to-cart" data-id="${book.id}" ${isInactive ? 'disabled' : ''}>${isInactive ? '已下架' : '加入购物车'}</button>
+          </div>
+        `;
+      }
+      return book[field.key] ?? '-';
+    }
+
+    function isFieldDifferent(books, field) {
+      if (field.type === 'cover' || field.type === 'actions') return false;
+      const values = books.map(book => {
+        if (field.type === 'category') return book.category?.id || '';
+        return String(book[field.key] ?? '');
+      });
+      return new Set(values).size > 1;
+    }
+
+    const inactiveWarning = inactiveBooks.length > 0 ? `
+      <div class="card p-4 mb-4 bg-red-50 border-red-200">
+        <p class="text-red-600 text-sm">
+          ⚠️ 有 ${inactiveBooks.length} 本书籍已下架，已从对比表格中移除。
+          <button class="underline ml-2" data-action="clear-inactive-comparison">移除此类书籍</button>
+        </p>
+      </div>
+    ` : '';
+
+    if (activeBooks.length < 2) {
+      viewContent.innerHTML = `
+        ${inactiveWarning}
+        <div class="card p-12 text-center">
+          <div class="text-6xl mb-4">📊</div>
+          <h3 class="text-xl font-semibold mb-2">请选择至少 2 本可对比的书籍</h3>
+          <p class="text-slate-500 mb-6">当前只有 ${activeBooks.length} 本有效书籍可供对比</p>
+          <div class="flex justify-center gap-2">
+            <button class="btn-outline" data-action="back-to-books">继续选书</button>
+            <button class="btn-outline" data-action="clear-comparison">清空对比</button>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    const tableRows = fields
+      .map(field => {
+        const isDifferent = isFieldDifferent(activeBooks, field);
+        const diffClass = isDifferent ? 'comparison-diff' : '';
+        return `
+          <tr class="border-b border-slate-200 ${diffClass}">
+            <th class="text-left py-4 px-4 font-semibold text-slate-700 bg-slate-50 w-28 ${field.key === 'cover' ? 'align-top' : ''}">${field.label}</th>
+            ${activeBooks.map(book => {
+              const isInactive = book.status !== 'ACTIVE';
+              return `
+                <td class="py-4 px-4 text-center ${isInactive ? 'opacity-50' : ''}">
+                  ${getFieldValue(book, field)}
+                </td>
+              `;
+            }).join('')}
+          </tr>
+        `;
+      })
+      .join('');
+
+    const headerCells = activeBooks
+      .map(book => `
+        <th class="py-4 px-4 text-center border-b-2 border-slate-300">
+          <div class="font-semibold text-lg">${book.title}</div>
+          <div class="text-sm text-slate-500">${book.author}</div>
+        </th>
+      `)
+      .join('');
+
+    viewContent.innerHTML = `
+      ${inactiveWarning}
+      <div class="card p-4 mb-4">
+        <div class="flex flex-wrap items-center justify-between gap-4">
+          <div class="flex items-center gap-2">
+            <span class="text-2xl">📊</span>
+            <div>
+              <p class="font-semibold">正在对比 ${activeBooks.length} 本书籍</p>
+              <p class="text-sm text-slate-500">差异项已高亮显示</p>
+            </div>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <button class="btn-outline" data-action="back-to-books">继续选书</button>
+            <button class="btn-outline" data-action="clear-comparison">清空对比</button>
+          </div>
+        </div>
+      </div>
+      
+      <div class="card p-4 overflow-x-auto">
+        <table class="w-full border-collapse">
+          <thead>
+            <tr>
+              <th class="py-4 px-4 text-left font-semibold text-slate-700 bg-slate-50 w-28 border-b-2 border-slate-300">属性</th>
+              ${headerCells}
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRows}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
   const viewRenderers = {
     books: renderBooks,
     cart: renderCart,
@@ -1646,7 +1886,8 @@ export function createViewController({
     admin: renderAdmin,
     'book-lists': renderBookLists,
     'book-list-detail': renderBookListDetail,
-    'book-detail': renderBookDetail
+    'book-detail': renderBookDetail,
+    comparison: renderComparison
   };
 
   function renderView() {
@@ -1658,6 +1899,7 @@ export function createViewController({
   function safeRender() {
     try {
       renderView();
+      updateComparisonUI();
     } catch (error) {
       viewContent.innerHTML = `<div class="card p-6 text-slate-500">页面渲染失败，请刷新重试。</div>`;
       showToast('页面渲染失败', 'error');
@@ -1672,6 +1914,7 @@ export function createViewController({
     formatBookListStatus,
     setNavActive,
     updateAuthUI,
+    updateComparisonUI,
     renderView,
     safeRender
   };

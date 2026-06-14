@@ -1,6 +1,17 @@
 import './styles.css';
 import { api } from './api';
-import { state, normalizeBookSearch, escapeHtmlAttr } from './state';
+import {
+  state,
+  normalizeBookSearch,
+  escapeHtmlAttr,
+  initComparison,
+  addToComparison,
+  removeFromComparison,
+  clearComparison,
+  isInComparison,
+  getComparisonCount,
+  getMaxComparisonItems
+} from './state';
 import { createViewController } from './views/view-controller';
 import { bindEventHandlers } from './handlers/event-binders';
 
@@ -13,6 +24,8 @@ const logoutBtn = document.getElementById('logout-btn');
 const userChip = document.getElementById('user-chip');
 const adminNavBtn = document.querySelector('[data-view="admin"]');
 const adminNavSection = document.getElementById('admin-nav');
+const comparisonBar = document.getElementById('comparison-bar');
+const comparisonNavBadge = document.getElementById('comparison-nav-badge');
 
 document.querySelectorAll('.nav-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
@@ -103,7 +116,7 @@ function closeModal() {
   modal.innerHTML = '';
 }
 
-const { updateAuthUI, safeRender } = createViewController({
+const { updateAuthUI, updateComparisonUI, safeRender } = createViewController({
   state,
   viewContent,
   viewTitle,
@@ -112,6 +125,8 @@ const { updateAuthUI, safeRender } = createViewController({
   userChip,
   adminNavBtn,
   adminNavSection,
+  comparisonBar,
+  comparisonNavBadge,
   escapeHtmlAttr,
   showToast
 });
@@ -362,6 +377,10 @@ const viewLoaders = {
   'book-lists': loadBookLists,
   'book-list-detail': async () => {},
   'book-detail': async () => {},
+  comparison: async () => {
+    await loadCategories();
+    await loadBooks();
+  },
   cart: async () => {
     await loadCart();
     await loadAddresses();
@@ -471,8 +490,10 @@ bindEventHandlers({
   api,
   modal,
   viewContent,
+  comparisonBar,
   showToast,
   updateAuthUI,
+  updateComparisonUI,
   setView,
   loadBooks,
   normalizeBookSearch,
@@ -492,11 +513,18 @@ bindEventHandlers({
   openLoginModal,
   openRegisterModal,
   openForgotModal,
-  openResetModal
+  openResetModal,
+  addToComparison,
+  removeFromComparison,
+  clearComparison,
+  isInComparison,
+  getComparisonCount,
+  getMaxComparisonItems
 });
 
 async function bootstrap() {
   api.initToken();
+  initComparison();
   try {
     const me = await api.getMe();
     state.user = me;

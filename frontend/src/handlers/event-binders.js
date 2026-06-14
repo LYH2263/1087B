@@ -139,8 +139,10 @@ export function bindEventHandlers({
   api,
   modal,
   viewContent,
+  comparisonBar,
   showToast,
   updateAuthUI,
+  updateComparisonUI,
   setView,
   loadBooks,
   normalizeBookSearch,
@@ -160,8 +162,15 @@ export function bindEventHandlers({
   openLoginModal,
   openRegisterModal,
   openForgotModal,
-  openResetModal
+  openResetModal,
+  addToComparison,
+  removeFromComparison,
+  clearComparison,
+  isInComparison,
+  getComparisonCount,
+  getMaxComparisonItems
 }) {
+  const MAX_COMPARISON_ITEMS = 4;
   const modalActionHandlers = {
     'close-modal': closeModal,
     'show-register': openRegisterModal,
@@ -575,6 +584,81 @@ export function bindEventHandlers({
       }
       await api.addToCart({ bookId: target.dataset.id, quantity: 1 });
       showToast('已加入购物车', 'success');
+    },
+    'toggle-comparison': async (target) => {
+      const bookId = target.dataset.id;
+      const isChecked = target.checked;
+
+      if (isChecked) {
+        const book = state.books.find(b => b.id === bookId);
+        if (book && book.status !== 'ACTIVE') {
+          target.checked = false;
+          showToast('已下架书籍不可加入对比', 'error');
+          return;
+        }
+
+        if (isInComparison(bookId)) {
+          showToast('该书已在对比列表中', 'error');
+          return;
+        }
+
+        if (getComparisonCount() >= MAX_COMPARISON_ITEMS) {
+          target.checked = false;
+          showToast(`最多只能对比 ${MAX_COMPARISON_ITEMS} 本书`, 'error');
+          return;
+        }
+
+        const result = addToComparison(bookId);
+        if (result.success) {
+          showToast('已加入对比', 'success');
+        } else if (result.reason === 'duplicate') {
+          target.checked = false;
+          showToast('该书已在对比列表中', 'error');
+        } else if (result.reason === 'limit') {
+          target.checked = false;
+          showToast(`最多只能对比 ${MAX_COMPARISON_ITEMS} 本书`, 'error');
+        }
+      } else {
+        removeFromComparison(bookId);
+        showToast('已从对比中移除', 'success');
+      }
+
+      if (state.view === 'comparison') {
+        safeRender();
+      } else {
+        updateComparisonUI();
+      }
+    },
+    'remove-from-comparison': async (target) => {
+      const bookId = target.dataset.id;
+      removeFromComparison(bookId);
+      showToast('已从对比中移除', 'success');
+      safeRender();
+    },
+    'clear-comparison': async () => {
+      if (!confirm('确定要清空对比列表吗？')) {
+        return;
+      }
+      clearComparison();
+      showToast('对比列表已清空', 'success');
+      safeRender();
+    },
+    'clear-inactive-comparison': async () => {
+      const books = state.books.filter(book => state.comparison.items.includes(book.id));
+      const inactiveIds = books.filter(b => b.status !== 'ACTIVE').map(b => b.id);
+      inactiveIds.forEach(id => removeFromComparison(id));
+      showToast(`已移除 ${inactiveIds.length} 本已下架书籍`, 'success');
+      safeRender();
+    },
+    'go-to-comparison': async () => {
+      const books = state.books.filter(book => state.comparison.items.includes(book.id));
+      const activeBooks = books.filter(b => b.status === 'ACTIVE');
+      if (activeBooks.length < 2) {
+        showToast('请至少选择 2 本有效书籍进行对比', 'error');
+        return;
+      }
+      state.view = 'comparison';
+      safeRender();
     },
     'reset-search': async (target) => {
       const form = target.closest('form');
@@ -1180,11 +1264,33 @@ export function bindEventHandlers({
     }
   });
 
+  if (comparisonBar) {
+    comparisonBar.addEventListener('click', async (event) => {
+      const actionTarget = event.target.closest('[data-action]');
+      if (!(actionTarget instanceof HTMLElement)) return;
+      const action = actionTarget.dataset.action;
+      const handler = contentActionHandlers[action];
+      if (!handler) return;
+
+      try {
+        await handler(actionTarget);
+      } catch (error) {
+        showToast(error.message || '操作失败', 'error');
+      }
+    });
+  }
+
   const contentChangeHandlers = {
     'update-qty': async (target) => {
       await api.updateCart(target.dataset.id, { quantity: Number(target.value) });
       await loadCart();
       safeRender();
+    },
+    'toggle-comparison': async (target) => {
+      const handler = contentActionHandlers['toggle-comparison'];
+      if (handler) {
+        await handler(target);
+      }
     }
   };
 

@@ -99,3 +99,41 @@ h1, h2, h3, h4 {
   border-color: #ef4444;
   box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.45) !important;
 }
+
+.comparison-checkbox {
+  accent-color: #0d9488;
+}
+
+.comparison-diff {
+  background-color: #fef3c7;
+}
+
+.comparison-diff td,
+.comparison-diff th {
+  background-color: #fef3c7;
+}
+
+#comparison-bar {
+  transform: translateY(100%);
+}
+
+#comparison-bar:not(.hidden) {
+  transform: translateY(0);
+}
+
+.comparison-bar-item:hover .comparison-bar-remove {
+  opacity: 1;
+}
+
+.comparison-bar-remove {
+  opacity: 0.8;
+  transition: opacity 0.2s ease;
+}
+
+@media (max-width: 768px) {
+  .comparison-bar-content {
+    margin-left: 1rem;
+    margin-right: 1rem;
+    margin-bottom: 1rem;
+  }
+}
