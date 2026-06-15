@@ -193,11 +193,27 @@ export const api = {
     return request(`/orders/${orderId}/confirm`, { method: 'POST' });
   },
   reviewOrder(orderId, payload) {
+    const formData = new FormData();
+    formData.append('rating', payload.rating);
+    formData.append('reviewText', payload.reviewText);
+    if (payload.images) {
+      for (const file of payload.images) {
+        formData.append('images', file);
+      }
+    }
     return request(`/orders/${orderId}/review`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: formData
     });
+  },
+  likeReview(orderId) {
+    return request(`/orders/${orderId}/review-like`, {
+      method: 'POST'
+    });
+  },
+  getBookReviews(bookId, params = {}) {
+    const query = new URLSearchParams(params).toString();
+    return request(`/books/${bookId}/reviews${query ? `?${query}` : ''}`);
   },
   getAddresses() {
     return request('/addresses');

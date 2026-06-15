@@ -103,7 +103,7 @@ const checkoutSchema = z.object({
 
 const reviewSchema = z.object({
   rating: z.number().int().min(1).max(5),
-  reviewText: z.string().min(3).max(200)
+  reviewText: z.string().min(3).max(500)
 });
 
 const flashSaleBaseSchema = z.object({

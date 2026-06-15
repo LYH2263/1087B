@@ -1,4 +1,7 @@
 const express = require('express');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 const prisma = require('../db');
 const asyncHandler = require('../utils/asyncHandler');
 const { ApiError } = require('../errors');
@@ -7,6 +10,47 @@ const { fromCents } = require('../utils/money');
 const { getActiveRule, computeShipping } = require('./shipping');
 
 const router = express.Router();
+
+const reviewUploadDir = path.join(__dirname, '..', '..', 'uploads', 'reviews');
+fs.mkdirSync(reviewUploadDir, { recursive: true });
+
+const MAX_REVIEW_IMAGE_SIZE = 5 * 1024 * 1024;
+const MAX_REVIEW_IMAGES = 6;
+const ALLOWED_REVIEW_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+
+const reviewStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, reviewUploadDir),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    const safeExt = ['.png', '.jpg', '.jpeg', '.webp'].includes(ext) ? ext : '.jpg';
+    const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    cb(null, `review-${unique}${safeExt}`);
+  }
+});
+
+const reviewUpload = multer({
+  storage: reviewStorage,
+  limits: { fileSize: MAX_REVIEW_IMAGE_SIZE },
+  fileFilter: (req, file, cb) => {
+    if (!ALLOWED_REVIEW_TYPES.includes(file.mimetype)) {
+      return cb(new ApiError(400, 'INVALID_FILE_TYPE'));
+    }
+    return cb(null, true);
+  }
+});
+
+function deleteReviewImages(imageUrls) {
+  for (const url of imageUrls) {
+    try {
+      const filePath = path.join(__dirname, '..', '..', url.replace(/^\//, ''));
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+}
 
 function mapOrder(order) {
   return {
@@ -24,6 +68,10 @@ function mapOrder(order) {
     postalCode: order.postalCode,
     rating: order.rating,
     reviewText: order.reviewText,
+    reviewImageUrls: order.reviewImageUrls || [],
+    likeCount: order._count?.reviewLikes ?? (order.reviewLikes ? order.reviewLikes.length : 0),
+    hasLiked: order.reviewLikes ? order.reviewLikes.length > 0 : false,
+    reviewedAt: order.reviewedAt,
     createdAt: order.createdAt,
     items: order.items.map((item) => ({
       id: item.id,
@@ -39,7 +87,7 @@ function mapOrder(order) {
 router.get('/', asyncHandler(async (req, res) => {
   const orders = await prisma.order.findMany({
     where: { userId: req.user.id },
-    include: { items: true },
+    include: { items: true, _count: { select: { reviewLikes: true } } },
     orderBy: { createdAt: 'desc' }
   });
 
@@ -236,35 +284,83 @@ router.post('/:id/confirm', asyncHandler(async (req, res) => {
   res.json({ message: 'order completed' });
 }));
 
-router.post('/:id/review', asyncHandler(async (req, res) => {
-  const payload = reviewSchema.parse(req.body);
+router.post('/:id/review', reviewUpload.array('images', MAX_REVIEW_IMAGES), asyncHandler(async (req, res) => {
+  const rating = parseInt(req.body.rating, 10);
+  const reviewText = req.body.reviewText || '';
+  const payload = reviewSchema.parse({ rating, reviewText });
 
   const order = await prisma.order.findUnique({
     where: { id: req.params.id }
   });
 
   if (!order || order.userId !== req.user.id) {
+    if (req.files && req.files.length > 0) {
+      deleteReviewImages(req.files.map(f => `/uploads/reviews/${f.filename}`));
+    }
     throw new ApiError(404, 'ORDER_NOT_FOUND');
   }
 
   if (order.status !== 'COMPLETED') {
+    if (req.files && req.files.length > 0) {
+      deleteReviewImages(req.files.map(f => `/uploads/reviews/${f.filename}`));
+    }
     throw new ApiError(400, 'ORDER_NOT_COMPLETED');
   }
 
   if (order.reviewedAt) {
+    if (req.files && req.files.length > 0) {
+      deleteReviewImages(req.files.map(f => `/uploads/reviews/${f.filename}`));
+    }
     throw new ApiError(400, 'ORDER_ALREADY_REVIEWED');
   }
 
-  await prisma.order.update({
-    where: { id: order.id },
-    data: {
-      rating: payload.rating,
-      reviewText: payload.reviewText,
-      reviewedAt: new Date()
-    }
+  const imageUrls = (req.files || []).map(f => `/uploads/reviews/${f.filename}`);
+
+  try {
+    await prisma.order.update({
+      where: { id: order.id },
+      data: {
+        rating: payload.rating,
+        reviewText: payload.reviewText,
+        reviewImageUrls: imageUrls,
+        reviewedAt: new Date()
+      }
+    });
+  } catch (err) {
+    deleteReviewImages(imageUrls);
+    throw err;
+  }
+
+  res.json({ message: 'review submitted', imageUrls });
+}));
+
+router.post('/:id/review-like', asyncHandler(async (req, res) => {
+  const orderId = req.params.id;
+  const userId = req.user.id;
+
+  const order = await prisma.order.findUnique({
+    where: { id: orderId }
   });
 
-  res.json({ message: 'review submitted' });
+  if (!order || !order.reviewedAt) {
+    throw new ApiError(404, 'REVIEW_NOT_FOUND');
+  }
+
+  try {
+    await prisma.reviewLike.create({
+      data: { orderId, userId }
+    });
+  } catch (error) {
+    if (error.code === 'P2002') {
+      await prisma.reviewLike.delete({
+        where: { orderId_userId: { orderId, userId } }
+      });
+      return res.json({ liked: false });
+    }
+    throw error;
+  }
+
+  res.json({ liked: true });
 }));
 
 module.exports = router;

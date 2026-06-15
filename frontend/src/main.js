@@ -85,7 +85,9 @@ const toastMap = [
   [/PRE_SALE_ALREADY_RESERVED|pre_sale_already_reserved/i, '您已经预约过该书了'],
   [/PRE_SALE_NOT_PENDING|pre_sale_not_pending/i, '该预约状态不支持此操作'],
   [/BOOK_ON_PRE_SALE|book_on_pre_sale/i, '该书正在预售中，暂不可购买，请先预约'],
-  [/SHIPPING_RULE_NOT_FOUND|shipping_rule_not_found/i, '运费规则不存在']
+  [/SHIPPING_RULE_NOT_FOUND|shipping_rule_not_found/i, '运费规则不存在'],
+  [/REVIEW_NOT_FOUND|review_not_found/i, '评价不存在'],
+  [/FILE_TOO_LARGE|file_too_large/i, '图片大小不能超过 5MB']
 ];
 
 function toChineseToast(message) {
@@ -294,23 +296,37 @@ async function loadBookListDetail(id) {
 async function loadBookDetail(bookId) {
   state.loading.bookDetail = true;
   state.bookQuestions.loading = true;
+  state.bookReviews.loading = true;
   safeRender();
   try {
     const book = state.books.find(b => b.id === bookId) || await api.getBooks().then(books => books.find(b => b.id === bookId));
     state.currentBook = book || null;
-    const result = await api.getBookQuestions(bookId, {
-      page: state.bookQuestions.page,
-      pageSize: state.bookQuestions.pageSize,
-      sort: state.bookQuestions.sort
-    });
-    state.bookQuestions.items = result.items;
-    state.bookQuestions.total = result.total;
-    state.bookQuestions.totalPages = result.totalPages;
-    state.bookQuestions.page = result.page;
-    state.bookQuestions.sort = result.sort;
+    const [qResult, rResult] = await Promise.all([
+      api.getBookQuestions(bookId, {
+        page: state.bookQuestions.page,
+        pageSize: state.bookQuestions.pageSize,
+        sort: state.bookQuestions.sort
+      }),
+      api.getBookReviews(bookId, {
+        page: state.bookReviews.page,
+        pageSize: state.bookReviews.pageSize,
+        sort: state.bookReviews.sort
+      }).catch(() => ({ items: [], total: 0, page: 1, pageSize: 10, totalPages: 0, sort: 'latest' }))
+    ]);
+    state.bookQuestions.items = qResult.items;
+    state.bookQuestions.total = qResult.total;
+    state.bookQuestions.totalPages = qResult.totalPages;
+    state.bookQuestions.page = qResult.page;
+    state.bookQuestions.sort = qResult.sort;
+    state.bookReviews.items = rResult.items;
+    state.bookReviews.total = rResult.total;
+    state.bookReviews.totalPages = rResult.totalPages;
+    state.bookReviews.page = rResult.page;
+    state.bookReviews.sort = rResult.sort;
   } finally {
     state.loading.bookDetail = false;
     state.bookQuestions.loading = false;
+    state.bookReviews.loading = false;
     safeRender();
   }
 }
@@ -332,6 +348,27 @@ async function reloadBookQuestions() {
     state.bookQuestions.sort = result.sort;
   } finally {
     state.bookQuestions.loading = false;
+    safeRender();
+  }
+}
+
+async function loadBookReviews() {
+  if (!state.currentBook) return;
+  state.bookReviews.loading = true;
+  safeRender();
+  try {
+    const result = await api.getBookReviews(state.currentBook.id, {
+      page: state.bookReviews.page,
+      pageSize: state.bookReviews.pageSize,
+      sort: state.bookReviews.sort
+    });
+    state.bookReviews.items = result.items;
+    state.bookReviews.total = result.total;
+    state.bookReviews.totalPages = result.totalPages;
+    state.bookReviews.page = result.page;
+    state.bookReviews.sort = result.sort;
+  } finally {
+    state.bookReviews.loading = false;
     safeRender();
   }
 }
@@ -637,6 +674,7 @@ bindEventHandlers({
   loadBookListDetail,
   loadBookDetail,
   reloadBookQuestions,
+  loadBookReviews,
   loadShippingCalculation,
   safeRender,
   openModal,

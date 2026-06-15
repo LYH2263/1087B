@@ -86,8 +86,12 @@ export const reviewSchema = z.object({
     toNumber,
     z.number({ invalid_type_error: '请输入评分' }).int().min(1, '最低 1 分').max(5, '最高 5 分')
   ),
-  reviewText: z.string().min(3, '至少 3 个字').max(200, '最多 200 字')
+  reviewText: z.string().min(3, '至少 3 个字').max(500, '最多 500 字')
 });
+
+export const REVIEW_IMAGE_MAX_SIZE = 5 * 1024 * 1024;
+export const REVIEW_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+export const REVIEW_IMAGE_MAX_COUNT = 6;
 
 export const flashSaleCreateSchema = z.object({
   bookId: z.string().min(1, '请选择参与书籍'),

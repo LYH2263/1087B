@@ -832,6 +832,7 @@ export function createViewController({
             ${order.status === 'SHIPPED' ? `<button class="btn-primary" data-action="confirm-order" data-id="${order.id}">确认收货</button>` : ''}
             ${order.status === 'COMPLETED' && !order.reviewText ? `<button class="btn-outline" data-action="review-order" data-id="${order.id}">评价订单</button>` : ''}
             ${order.reviewText ? `<span class="badge">已评价 ${order.rating}⭐</span>` : ''}
+            ${order.reviewImageUrls && order.reviewImageUrls.length > 0 ? `<span class="badge">📷 ${order.reviewImageUrls.length}图</span>` : ''}
             ${['PAID', 'SHIPPED', 'COMPLETED'].includes(order.status) && !order.hasInvoice ? `<button class="btn-outline" data-action="apply-invoice" data-id="${order.id}">申请发票</button>` : ''}
             ${order.hasInvoice ? `<span class="badge ${order.invoiceStatus === 'ISSUED' ? 'badge-active' : ''}">发票：${formatInvoiceStatus(order.invoiceStatus)}</span>` : ''}
           </div>
@@ -2197,17 +2198,23 @@ export function createViewController({
     const totalPages = state.bookQuestions.totalPages || 0;
     const total = state.bookQuestions.total || 0;
 
+    const reviews = state.bookReviews.items || [];
+    const reviewSort = state.bookReviews.sort || 'latest';
+    const reviewPage = state.bookReviews.page || 1;
+    const reviewTotalPages = state.bookReviews.totalPages || 0;
+    const reviewTotal = state.bookReviews.total || 0;
+
     viewTitle.innerHTML = `
       <div class="flex items-center gap-4">
         <button class="btn-outline" data-action="back-to-books">← 返回列表</button>
         <div>
           <h2 class="text-xl font-semibold">书籍详情</h2>
-          <p class="text-sm text-slate-500">查看书籍信息与读者问答</p>
+          <p class="text-sm text-slate-500">查看书籍信息、评价与读者问答</p>
         </div>
       </div>
     `;
 
-    if (state.loading.bookDetail || state.bookQuestions.loading) {
+    if (state.loading.bookDetail || state.bookQuestions.loading || state.bookReviews.loading) {
       viewContent.innerHTML = `
         <div class="card p-6">
           <div class="animate-pulse space-y-6">
@@ -2339,6 +2346,88 @@ export function createViewController({
             </div>
           </div>
         </div>
+      </div>
+
+      <div class="card p-6 mb-6">
+        <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
+          <div>
+            <h3 class="text-xl font-semibold">⭐ 图文评价</h3>
+            <p class="text-sm text-slate-500">共 ${reviewTotal} 条评价</p>
+          </div>
+          <div class="flex gap-2">
+            <button 
+              class="btn-outline text-sm ${reviewSort === 'hasImage' ? 'btn-primary' : ''}" 
+              data-action="review-sort" 
+              data-sort="hasImage"
+            >有图优先</button>
+            <button 
+              class="btn-outline text-sm ${reviewSort === 'latest' ? 'btn-primary' : ''}" 
+              data-action="review-sort" 
+              data-sort="latest"
+            >最新</button>
+            <button 
+              class="btn-outline text-sm ${reviewSort === 'likes' ? 'btn-primary' : ''}" 
+              data-action="review-sort" 
+              data-sort="likes"
+            >最赞</button>
+          </div>
+        </div>
+
+        ${reviews.length > 0 ? `
+          <div class="space-y-4">
+            ${reviews.map((r) => {
+              const imagesHtml = (r.reviewImageUrls || []).length > 0
+                ? `<div class="flex flex-wrap gap-2 mt-2">${
+                    r.reviewImageUrls.map((url, idx) => 
+                      `<img src="${url}" alt="评价图片" class="w-16 h-16 object-cover rounded-lg border border-slate-200 cursor-pointer hover:opacity-80 transition-opacity" data-action="open-gallery" data-images="${escapeHtmlAttr(JSON.stringify(r.reviewImageUrls))}" data-index="${idx}" />`
+                    ).join('')
+                  }</div>`
+                : '';
+              const likeBtnClass = r.hasLiked ? 'btn-primary' : 'btn-outline';
+              return `
+                <div class="border border-slate-200 rounded-xl p-5 space-y-3 bg-white">
+                  <div class="flex items-start justify-between gap-3">
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-center gap-2 mb-2">
+                        <span class="text-sm font-semibold text-slate-800">${escapeHtmlAttr(r.username)}</span>
+                        <span class="text-xs text-slate-400">${new Date(r.reviewedAt).toLocaleString()}</span>
+                        <span class="badge ml-auto">${'⭐'.repeat(r.rating || 0)}</span>
+                      </div>
+                      <p class="text-slate-700 whitespace-pre-wrap break-words">${escapeHtmlAttr(r.reviewText)}</p>
+                      ${imagesHtml}
+                    </div>
+                  </div>
+                  <div class="flex justify-end">
+                    <button 
+                      class="${likeBtnClass} text-sm flex items-center gap-1" 
+                      data-action="like-review" 
+                      data-id="${r.id}"
+                    >
+                      <span>${r.hasLiked ? '❤️' : '🤍'}</span>
+                      <span>${r.likeCount || 0}</span>
+                    </button>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+
+          ${reviewTotalPages > 1 ? `
+            <div class="flex justify-center items-center gap-2 pt-4">
+              <button 
+                class="btn-outline" 
+                data-action="review-prev-page"
+                ${reviewPage <= 1 ? 'disabled' : ''}
+              >上一页</button>
+              <span class="text-sm text-slate-500">第 ${reviewPage} / ${reviewTotalPages} 页（共 ${reviewTotal} 条）</span>
+              <button 
+                class="btn-outline" 
+                data-action="review-next-page"
+                ${reviewPage >= reviewTotalPages ? 'disabled' : ''}
+              >下一页</button>
+            </div>
+          ` : ''}
+        ` : '<div class="card p-6 text-center text-slate-500">暂无评价</div>'}
       </div>
 
       <div class="card p-6">

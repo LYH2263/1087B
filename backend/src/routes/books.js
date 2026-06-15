@@ -3,8 +3,24 @@ const prisma = require('../db');
 const asyncHandler = require('../utils/asyncHandler');
 const { toCents, fromCents } = require('../utils/money');
 const { ApiError } = require('../errors');
+const jwt = require('jsonwebtoken');
+const config = require('../config');
 
 const router = express.Router();
+
+function optionalAuth(req, res, next) {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (token) {
+    try {
+      const payload = jwt.verify(token, config.jwtSecret);
+      req.user = { id: payload.sub, role: payload.role, username: payload.username };
+    } catch (e) {
+      // ignore
+    }
+  }
+  next();
+}
 
 function mapBook(book) {
   const result = {
@@ -195,6 +211,80 @@ router.get('/:id([a-z0-9]{25})', asyncHandler(async (req, res) => {
   }
 
   res.json(mapBook(book));
+}));
+
+router.get('/:id([a-z0-9]{25})/reviews', optionalAuth, asyncHandler(async (req, res) => {
+  const bookId = req.params.id;
+  const { sort = 'latest', page = 1, pageSize = 10 } = req.query;
+
+  const book = await prisma.book.findUnique({ where: { id: bookId } });
+  if (!book || book.status !== 'ACTIVE') {
+    throw new ApiError(404, 'BOOK_NOT_FOUND');
+  }
+
+  const currentPage = Math.max(1, parseInt(page, 10) || 1);
+  const currentPageSize = Math.min(50, Math.max(1, parseInt(pageSize, 10) || 10));
+  const skip = (currentPage - 1) * currentPageSize;
+
+  const where = {
+    status: 'COMPLETED',
+    reviewedAt: { not: null },
+    items: { some: { bookId } }
+  };
+
+  let orderBy;
+  if (sort === 'likes') {
+    orderBy = { reviewLikes: { _count: 'desc' } };
+  } else if (sort === 'hasImage') {
+    orderBy = { reviewedAt: 'desc' };
+  } else {
+    orderBy = { reviewedAt: 'desc' };
+  }
+
+  const [orders, totalCount] = await Promise.all([
+    prisma.order.findMany({
+      where,
+      include: {
+        user: { select: { id: true, username: true } },
+        reviewLikes: req.user ? { where: { userId: req.user.id } } : false,
+        _count: { select: { reviewLikes: true } }
+      },
+      orderBy,
+      skip,
+      take: currentPageSize
+    }),
+    prisma.order.count({ where })
+  ]);
+
+  let reviews = orders.map(order => ({
+    id: order.id,
+    userId: order.userId,
+    username: order.user?.username || '匿名用户',
+    rating: order.rating,
+    reviewText: order.reviewText,
+    reviewImageUrls: order.reviewImageUrls || [],
+    likeCount: order._count.reviewLikes,
+    hasLiked: req.user ? order.reviewLikes.length > 0 : false,
+    reviewedAt: order.reviewedAt
+  }));
+
+  if (sort === 'hasImage') {
+    reviews.sort((a, b) => {
+      const aHas = a.reviewImageUrls.length > 0 ? 0 : 1;
+      const bHas = b.reviewImageUrls.length > 0 ? 0 : 1;
+      if (aHas !== bHas) return aHas - bHas;
+      return new Date(b.reviewedAt) - new Date(a.reviewedAt);
+    });
+  }
+
+  res.json({
+    items: reviews,
+    total: totalCount,
+    page: currentPage,
+    pageSize: currentPageSize,
+    totalPages: Math.ceil(totalCount / currentPageSize),
+    sort
+  });
 }));
 
 module.exports = router;

@@ -95,6 +95,7 @@ model User {
   questions    Question[]
   answers      Answer[]
   answerLikes  AnswerLike[]
+  reviewLikes  ReviewLike[]
   preSaleReservations PreSaleReservation[]
   notifications Notification[]
 }
@@ -237,6 +238,8 @@ model Order {
   updatedAt     DateTime     @updatedAt
   user          User         @relation(fields: [userId], references: [id])
   items         OrderItem[]
+  reviewImageUrls String[]
+  reviewLikes    ReviewLike[]
   flashSaleOrder FlashSaleOrder?
   invoice       Invoice?
 }
@@ -432,4 +435,17 @@ model Notification {
   @@index([userId])
   @@index([read])
   @@index([createdAt])
+}
+
+model ReviewLike {
+  id        String   @id @default(cuid())
+  orderId   String
+  userId    String
+  createdAt DateTime @default(now())
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([orderId, userId])
+  @@index([orderId])
+  @@index([userId])
 }

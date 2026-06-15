@@ -20,7 +20,10 @@ import {
   answerSchema,
   shippingRuleSchema,
   COVER_MAX_SIZE,
-  COVER_TYPES
+  COVER_TYPES,
+  REVIEW_IMAGE_MAX_SIZE,
+  REVIEW_IMAGE_TYPES,
+  REVIEW_IMAGE_MAX_COUNT
 } from '../validation/schemas.js';
 
 function getFormData(form) {
@@ -162,6 +165,7 @@ export function bindEventHandlers({
   loadBookListDetail,
   loadBookDetail,
   reloadBookQuestions,
+  loadBookReviews,
   safeRender,
   openModal,
   closeModal,
@@ -260,11 +264,47 @@ export function bindEventHandlers({
         rating: data.rating,
         reviewText: data.reviewText
       });
-      await api.reviewOrder(form.dataset.order, parsed);
-      closeModal();
-      await loadOrders();
-      safeRender();
-      showToast('评价已提交', 'success');
+      const imageInput = form.querySelector('input[name="reviewImages"]');
+      const files = imageInput?.files ? Array.from(imageInput.files) : [];
+      const oversized = files.filter(f => f.size > REVIEW_IMAGE_MAX_SIZE);
+      if (oversized.length > 0) {
+        markFieldError(imageInput, '图片大小不能超过 5MB');
+        return;
+      }
+      const invalidType = files.filter(f => !REVIEW_IMAGE_TYPES.includes(f.type));
+      if (invalidType.length > 0) {
+        markFieldError(imageInput, '仅支持 JPG/PNG/WEBP 格式');
+        return;
+      }
+      if (files.length > REVIEW_IMAGE_MAX_COUNT) {
+        markFieldError(imageInput, `最多上传 ${REVIEW_IMAGE_MAX_COUNT} 张图片`);
+        return;
+      }
+      const submitBtn = form.querySelector('button[type="submit"]');
+      const originalText = submitBtn?.textContent;
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = '提交中...';
+      }
+      try {
+        await api.reviewOrder(form.dataset.order, {
+          ...parsed,
+          images: files
+        });
+        closeModal();
+        await loadOrders();
+        safeRender();
+        showToast('评价已提交', 'success');
+      } catch (error) {
+        if (handleZodError(form, error)) return;
+        if (handleApiValidationError(form, error)) return;
+        showToast(error.message || '评价提交失败', 'error');
+      } finally {
+        if (submitBtn && document.body.contains(submitBtn)) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = originalText || '提交评价';
+        }
+      }
     },
     'invoice-apply': async (form) => {
       const data = getFormData(form);
@@ -822,11 +862,42 @@ export function bindEventHandlers({
           <h3 class="text-lg font-semibold">评价订单</h3>
           <form data-form="review" data-order="${orderId}" class="space-y-3" novalidate>
             <input class="input" name="rating" type="number" min="1" max="5" placeholder="评分 1-5" required />
-            <textarea class="input" name="reviewText" rows="3" placeholder="评价内容" required></textarea>
+            <textarea class="input" name="reviewText" rows="3" placeholder="评价内容（3-500字）" required></textarea>
+            <div class="space-y-2">
+              <label class="text-sm text-slate-600">上传图片（最多${REVIEW_IMAGE_MAX_COUNT}张，支持JPG/PNG/WEBP，单张不超过5MB）</label>
+              <input class="input" name="reviewImages" type="file" accept="image/png,image/jpeg,image/webp" multiple />
+              <div id="review-image-previews" class="flex flex-wrap gap-2"></div>
+            </div>
             <button class="btn-primary w-full" type="submit">提交评价</button>
           </form>
         </div>
       `);
+      const fileInput = document.querySelector('form[data-form="review"] input[name="reviewImages"]');
+      if (fileInput) {
+        fileInput.addEventListener('change', (e) => {
+          const previews = document.getElementById('review-image-previews');
+          if (!previews) return;
+          previews.innerHTML = '';
+          const files = Array.from(e.target.files);
+          if (files.length > REVIEW_IMAGE_MAX_COUNT) {
+            markFieldError(fileInput, `最多上传 ${REVIEW_IMAGE_MAX_COUNT} 张图片`);
+            return;
+          }
+          files.forEach(file => {
+            if (!REVIEW_IMAGE_TYPES.includes(file.type)) return;
+            if (file.size > REVIEW_IMAGE_MAX_SIZE) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+              const img = document.createElement('img');
+              img.src = ev.target.result;
+              img.className = 'w-16 h-16 object-cover rounded-lg border border-slate-200';
+              img.alt = 'preview';
+              previews.appendChild(img);
+            };
+            reader.readAsDataURL(file);
+          });
+        });
+      }
     },
     'set-default': async (target) => {
       await api.setDefaultAddress(target.dataset.id);
@@ -1441,7 +1512,8 @@ export function bindEventHandlers({
     },
     'back-to-books': async () => {
       state.currentBook = null;
-      state.bookQuestions = { items: [], total: 0, page: 1, sort: 'time', loading: false };
+      state.bookQuestions = { items: [], total: 0, page: 1, pageSize: 10, totalPages: 0, sort: 'time', loading: false };
+      state.bookReviews = { items: [], total: 0, page: 1, pageSize: 10, totalPages: 0, sort: 'latest', loading: false };
       state.view = 'books';
       await loadBooks(state.bookSearch);
       safeRender();
@@ -1477,6 +1549,103 @@ export function bindEventHandlers({
       state.bookQuestions.page++;
       await reloadBookQuestions();
       safeRender();
+    },
+    'like-review': async (target) => {
+      if (!state.user) {
+        openLoginModal();
+        return;
+      }
+      const orderId = target.dataset.id;
+      const result = await api.likeReview(orderId);
+      await loadBookReviews();
+      safeRender();
+      showToast(result.liked ? '点赞成功' : '已取消点赞', 'success');
+    },
+    'review-sort': async (target) => {
+      const sort = target.dataset.sort;
+      state.bookReviews.sort = sort;
+      state.bookReviews.page = 1;
+      await loadBookReviews();
+      safeRender();
+    },
+    'review-prev-page': async () => {
+      if (state.bookReviews.page <= 1) return;
+      state.bookReviews.page--;
+      await loadBookReviews();
+      safeRender();
+    },
+    'review-next-page': async () => {
+      const pageSize = state.bookReviews.pageSize || 10;
+      const maxPage = Math.ceil((state.bookReviews.total || 0) / pageSize);
+      if (state.bookReviews.page >= maxPage) return;
+      state.bookReviews.page++;
+      await loadBookReviews();
+      safeRender();
+    },
+    'open-gallery': async (target) => {
+      const imageUrls = JSON.parse(target.dataset.images || '[]');
+      const startIndex = parseInt(target.dataset.index || '0', 10);
+      if (!imageUrls.length) return;
+
+      let currentIndex = startIndex;
+
+      function renderGallery() {
+        const url = imageUrls[currentIndex];
+        modal.innerHTML = `
+          <div class="card w-full max-w-2xl p-4 relative">
+            <button class="absolute right-4 top-4 text-slate-400 hover:text-slate-700 z-10 text-xl" data-action="close-modal">✕</button>
+            <div class="flex items-center justify-center mb-3" style="min-height:400px;">
+              <img src="${url}" alt="评价图片" class="max-h-[70vh] max-w-full object-contain rounded-lg" />
+            </div>
+            <div class="flex items-center justify-between">
+              <button class="btn-outline" data-action="gallery-prev" ${currentIndex <= 0 ? 'disabled' : ''}>← 上一张</button>
+              <span class="text-sm text-slate-500">${currentIndex + 1} / ${imageUrls.length}</span>
+              <button class="btn-outline" data-action="gallery-next" ${currentIndex >= imageUrls.length - 1 ? 'disabled' : ''}>下一张 →</button>
+            </div>
+          </div>
+        `;
+      }
+
+      function onKeydown(e) {
+        if (e.key === 'ArrowLeft') {
+          if (currentIndex > 0) { currentIndex--; renderGallery(); }
+        } else if (e.key === 'ArrowRight') {
+          if (currentIndex < imageUrls.length - 1) { currentIndex++; renderGallery(); }
+        } else if (e.key === 'Escape') {
+          cleanup();
+          closeModal();
+        }
+      }
+
+      function cleanup() {
+        document.removeEventListener('keydown', onKeydown);
+        modal.removeEventListener('click', galleryClickHandler);
+      }
+
+      function galleryClickHandler(event) {
+        if (event.target === modal) {
+          cleanup();
+          closeModal();
+          return;
+        }
+        const action = event.target?.dataset?.action;
+        if (action === 'gallery-prev' && currentIndex > 0) {
+          currentIndex--;
+          renderGallery();
+        } else if (action === 'gallery-next' && currentIndex < imageUrls.length - 1) {
+          currentIndex++;
+          renderGallery();
+        } else if (action === 'close-modal') {
+          cleanup();
+          closeModal();
+        }
+      }
+
+      renderGallery();
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+      document.addEventListener('keydown', onKeydown);
+      modal.addEventListener('click', galleryClickHandler);
     },
     'admin-qna-tab': async (target) => {
       state.admin.qnaTab = target.dataset.tab;

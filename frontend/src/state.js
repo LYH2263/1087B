@@ -28,6 +28,15 @@ export const state = {
     sort: 'time',
     loading: false
   },
+  bookReviews: {
+    items: [],
+    total: 0,
+    page: 1,
+    pageSize: 10,
+    totalPages: 0,
+    sort: 'latest',
+    loading: false
+  },
   cart: [],
   orders: [],
   invoices: [],
