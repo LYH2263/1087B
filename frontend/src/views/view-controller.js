@@ -300,6 +300,78 @@ export function createViewController({
     `;
   }
 
+  function renderTagCloud() {
+    const tags = state.tagCloud || [];
+    if (tags.length === 0) return '';
+
+    const maxCount = Math.max(...tags.map(t => t.bookCount));
+    const minCount = Math.min(...tags.map(t => t.bookCount));
+    const selectedTagIds = state.bookSearch.tagIds || [];
+    const tagLogic = state.bookSearch.tagLogic || 'OR';
+
+    function getTagSize(count) {
+      if (maxCount === minCount) return 'text-base';
+      const ratio = (count - minCount) / (maxCount - minCount);
+      if (ratio < 0.33) return 'text-sm';
+      if (ratio < 0.66) return 'text-base';
+      if (ratio < 0.85) return 'text-lg';
+      return 'text-xl font-semibold';
+    }
+
+    const tagElements = tags
+      .map(tag => {
+        const isSelected = selectedTagIds.includes(tag.id);
+        const sizeClass = getTagSize(tag.bookCount);
+        const bgClass = isSelected ? 'bg-teal-500 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200';
+        return `
+          <button 
+            class="tag-cloud-item px-3 py-1.5 rounded-full ${sizeClass} ${bgClass} transition-colors"
+            data-action="toggle-tag-filter"
+            data-tag-id="${tag.id}"
+            data-selected="${isSelected}"
+          >
+            ${escapeHtmlAttr(tag.name)}
+            <span class="text-xs opacity-70 ml-1">(${tag.bookCount})</span>
+          </button>
+        `;
+      })
+      .join('');
+
+    return `
+      <div class="card p-5">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center gap-2">
+            <span class="text-xl">🏷️</span>
+            <h3 class="text-lg font-semibold">标签云</h3>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-sm text-slate-500">筛选逻辑：</span>
+            <select class="input input-sm" name="tagLogic" data-action="change-tag-logic">
+              <option value="OR" ${tagLogic === 'OR' ? 'selected' : ''}>或（满足任一）</option>
+              <option value="AND" ${tagLogic === 'AND' ? 'selected' : ''}>与（全部满足）</option>
+            </select>
+            ${selectedTagIds.length > 0 ? `<button class="btn-outline btn-sm" data-action="clear-tag-filter">清除标签</button>` : ''}
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          ${tagElements}
+        </div>
+        ${selectedTagIds.length > 0 ? `
+          <p class="text-xs text-slate-500 mt-3">
+            已选 ${selectedTagIds.length} 个标签，${tagLogic === 'AND' ? '需同时满足所有标签' : '满足任一标签即可'}
+          </p>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  function renderBookTags(tags) {
+    if (!tags || tags.length === 0) return '';
+    return tags
+      .map(tag => `<span class="badge badge-tag" style="${tag.color ? `background-color: ${tag.color}20; color: ${tag.color}; border-color: ${tag.color}40;` : ''}">${escapeHtmlAttr(tag.name)}</span>`)
+      .join('');
+  }
+
   function renderBooks() {
     const search = state.bookSearch;
     const categoryOptions = state.categories
@@ -311,6 +383,7 @@ export function createViewController({
         (book) => {
           const isInComparison = state.comparison.items.includes(book.id);
           const isInactive = book.status !== 'ACTIVE';
+          const tagBadges = renderBookTags(book.tags);
           return `
         <div class="card hover-card p-4 flex flex-col gap-3 ${isInactive ? 'opacity-60' : ''}" data-book-id="${book.id}">
           <div class="flex justify-between items-start">
@@ -334,6 +407,9 @@ export function createViewController({
             <p class="text-sm text-slate-500">${book.author}</p>
             <div class="flex flex-wrap gap-2 mt-2">
               <span class="badge">${book.category?.name || '未分类'}</span>
+              ${tagBadges}
+            </div>
+            <div class="flex flex-wrap gap-2 mt-1">
               <span class="badge">库存 ${book.stock}</span>
               <span class="badge">销量 ${book.sales}</span>
             </div>
@@ -359,9 +435,11 @@ export function createViewController({
     `;
 
     const flashSaleSection = renderFlashSaleSection();
+    const tagCloudSection = renderTagCloud();
 
     viewContent.innerHTML = `
       ${flashSaleSection}
+      ${tagCloudSection}
       <div class="card p-5">
         <form class="grid md:grid-cols-6 gap-3" data-form="book-search" novalidate>
           <input class="input md:col-span-2" name="title" placeholder="书名" value="${escapeHtmlAttr(search.title)}" />
@@ -730,6 +808,7 @@ export function createViewController({
       <div class="flex flex-wrap gap-2">
         <button class="btn-outline" data-action="admin-tab" data-tab="books">书籍管理</button>
         <button class="btn-outline" data-action="admin-tab" data-tab="categories">分类管理</button>
+        <button class="btn-outline" data-action="admin-tab" data-tab="tags">标签管理</button>
         <button class="btn-outline" data-action="admin-tab" data-tab="orders">订单管理</button>
         <button class="btn-outline" data-action="admin-tab" data-tab="flash-sales">秒杀管理</button>
         <button class="btn-outline" data-action="admin-tab" data-tab="invoices">发票管理</button>
@@ -747,9 +826,24 @@ export function createViewController({
         )
         .join('');
 
+      const editingTagIds = state.admin.editingBookTags?.map(t => t.id) || [];
+      const tagCheckboxes = state.admin.tags
+        .map(tag => {
+          const isChecked = editingTagIds.includes(tag.id);
+          return `
+            <label class="inline-flex items-center gap-2 cursor-pointer px-3 py-1.5 rounded-lg border ${isChecked ? 'bg-teal-50 border-teal-200' : 'bg-white border-slate-200 hover:border-slate-300'}">
+              <input type="checkbox" name="tagIds" value="${tag.id}" ${isChecked ? 'checked' : ''} class="w-4 h-4 text-teal-600 rounded" />
+              <span class="text-sm" style="${tag.color ? `color: ${tag.color};` : ''}">${escapeHtmlAttr(tag.name)}</span>
+            </label>
+          `;
+        })
+        .join('');
+
       const bookRows = state.admin.books
         .map(
-          (book) => `
+          (book) => {
+            const bookTagBadges = renderBookTags(book.tags);
+            return `
         <div class="border border-slate-200 rounded-xl p-4 flex flex-col gap-3 hover-card">
           <div class="flex justify-between">
             <div>
@@ -763,6 +857,7 @@ export function createViewController({
             <span>库存：${book.stock}</span>
             <span>分类：${book.category?.name || '-'}</span>
           </div>
+          ${bookTagBadges ? `<div class="flex flex-wrap gap-1">${bookTagBadges}</div>` : ''}
           <div class="flex flex-wrap gap-2">
             <button class="btn-outline" data-action="edit-book" data-id="${book.id}">编辑</button>
             ${book.status === 'ACTIVE'
@@ -770,7 +865,8 @@ export function createViewController({
               : `<button class="btn-outline" data-action="restore-book" data-id="${book.id}">上架</button>`}
           </div>
         </div>
-      `
+      `;
+          }
         )
         .join('');
 
@@ -806,7 +902,16 @@ export function createViewController({
             <div class="space-y-1 md:col-span-2">
               <textarea class="input" name="description" placeholder="书籍简介" rows="3" required>${state.admin.editingBook?.description || ''}</textarea>
             </div>
-            <div class="md:col-span-2 flex justify-end">
+            ${state.admin.editingBook ? `
+            <div class="space-y-2 md:col-span-2">
+              <label class="text-sm text-slate-600">标签</label>
+              <div class="flex flex-wrap gap-2 p-3 bg-slate-50 rounded-xl">
+                ${tagCheckboxes || '<span class="text-sm text-slate-400">暂无标签，请先在标签管理中创建</span>'}
+              </div>
+            </div>
+            ` : ''}
+            <div class="md:col-span-2 flex justify-end gap-2">
+              ${state.admin.editingBook ? '<button class="btn-outline" type="button" data-action="cancel-edit-book">取消</button>' : ''}
               <button class="btn-primary" type="submit">${state.admin.editingBook ? '保存修改' : '添加书籍'}</button>
             </div>
           </form>
@@ -838,6 +943,49 @@ export function createViewController({
           </form>
         </div>
         <div class="grid md:grid-cols-2 gap-4">${categoryList || '<div class="text-slate-500">暂无分类</div>'}</div>
+      `;
+    }
+
+    if (state.admin.tab === 'tags') {
+      const tagList = state.admin.tags
+        .map(
+          (tag) => `
+        <div class="border border-slate-200 rounded-xl p-4 flex items-center justify-between hover-card">
+          <div class="flex items-center gap-3">
+            <span class="badge" style="${tag.color ? `background-color: ${tag.color}20; color: ${tag.color}; border-color: ${tag.color}40;` : ''}">${escapeHtmlAttr(tag.name)}</span>
+            <span class="text-xs text-slate-500">${tag.bookCount} 本书</span>
+          </div>
+          <div class="flex gap-2">
+            <button class="btn-outline" data-action="edit-tag" data-id="${tag.id}">编辑</button>
+            <button class="btn-outline text-red-600" data-action="delete-tag" data-id="${tag.id}">删除</button>
+          </div>
+        </div>
+      `
+        )
+        .join('');
+
+      const editingTag = state.admin.editingTag;
+
+      content = `
+        <div class="card p-6 space-y-4">
+          <h3 class="text-lg font-semibold">${editingTag ? '编辑标签' : '新增标签'}</h3>
+          <form data-form="admin-tag" class="grid md:grid-cols-3 gap-3" novalidate>
+            <input type="hidden" name="tagId" value="${editingTag?.id || ''}" />
+            <div class="space-y-1">
+              <label class="text-sm text-slate-600">标签名称</label>
+              <input class="input" name="name" placeholder="标签名称" value="${escapeHtmlAttr(editingTag?.name || '')}" required />
+            </div>
+            <div class="space-y-1">
+              <label class="text-sm text-slate-600">标签颜色（可选）</label>
+              <input class="input" type="color" name="color" value="${editingTag?.color || '#3b82f6'}" />
+            </div>
+            <div class="flex items-end gap-2">
+              <button class="btn-primary" type="submit">${editingTag ? '保存修改' : '添加标签'}</button>
+              ${editingTag ? '<button class="btn-outline" type="button" data-action="cancel-edit-tag">取消</button>' : ''}
+            </div>
+          </form>
+        </div>
+        <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-4">${tagList || '<div class="text-slate-500">暂无标签</div>'}</div>
       `;
     }
 

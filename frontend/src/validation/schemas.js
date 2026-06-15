@@ -182,3 +182,8 @@ export const questionSchema = z.object({
 export const answerSchema = z.object({
   content: z.string().min(2, '回答内容至少2个字符').max(2000, '回答内容最多2000个字符').trim()
 });
+
+export const adminTagSchema = z.object({
+  name: z.string().min(1, '请输入标签名称').max(20, '标签名称最多20个字符'),
+  color: z.string().optional()
+});

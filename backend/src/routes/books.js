@@ -18,7 +18,12 @@ function mapBook(book) {
     coverUrl: book.coverUrl,
     sales: book.sales,
     status: book.status,
-    category: book.category
+    category: book.category,
+    tags: book.tags ? book.tags.map(bt => ({
+      id: bt.tag.id,
+      name: bt.tag.name,
+      color: bt.tag.color
+    })) : []
   };
 }
 
@@ -30,7 +35,9 @@ router.get('/', asyncHandler(async (req, res) => {
     categoryId,
     minPrice,
     maxPrice,
-    sort
+    sort,
+    tagIds,
+    tagLogic = 'OR'
   } = req.query;
 
   const where = {
@@ -66,6 +73,33 @@ router.get('/', asyncHandler(async (req, res) => {
     }
   }
 
+  let tagIdArray = [];
+  if (tagIds) {
+    if (Array.isArray(tagIds)) {
+      tagIdArray = tagIds.map(String);
+    } else {
+      tagIdArray = String(tagIds).split(',').filter(Boolean);
+    }
+  }
+
+  if (tagIdArray.length > 0) {
+    const logic = tagLogic === 'AND' ? 'AND' : 'OR';
+    
+    if (logic === 'AND') {
+      where.AND = tagIdArray.map(tagId => ({
+        tags: {
+          some: { tagId }
+        }
+      }));
+    } else {
+      where.tags = {
+        some: {
+          tagId: { in: tagIdArray }
+        }
+      };
+    }
+  }
+
   let orderBy = { createdAt: 'desc' };
   if (sort === 'price_asc') {
     orderBy = { priceCents: 'asc' };
@@ -79,7 +113,12 @@ router.get('/', asyncHandler(async (req, res) => {
 
   const books = await prisma.book.findMany({
     where,
-    include: { category: true },
+    include: { 
+      category: true,
+      tags: {
+        include: { tag: true }
+      }
+    },
     orderBy
   });
 
@@ -93,10 +132,37 @@ router.get('/categories', asyncHandler(async (req, res) => {
   res.json(categories);
 }));
 
+router.get('/tags/cloud', asyncHandler(async (req, res) => {
+  const tags = await prisma.tag.findMany({
+    orderBy: { name: 'asc' },
+    include: {
+      _count: {
+        select: { books: true }
+      }
+    }
+  });
+
+  const result = tags
+    .filter(tag => tag._count.books > 0)
+    .map(tag => ({
+      id: tag.id,
+      name: tag.name,
+      color: tag.color,
+      bookCount: tag._count.books
+    }));
+
+  res.json(result);
+}));
+
 router.get('/:id([a-z0-9]{25})', asyncHandler(async (req, res) => {
   const book = await prisma.book.findUnique({
     where: { id: req.params.id },
-    include: { category: true }
+    include: { 
+      category: true,
+      tags: {
+        include: { tag: true }
+      }
+    }
   });
 
   if (!book || book.status !== 'ACTIVE') {

@@ -135,7 +135,12 @@ async function loadBooks(params = {}) {
   state.bookSearch = normalizeBookSearch(params);
   state.loading.books = true;
   safeRender();
-  state.books = await api.getBooks(state.bookSearch);
+  const [books, tagCloud] = await Promise.all([
+    api.getBooks(state.bookSearch),
+    api.getTagCloud().catch(() => [])
+  ]);
+  state.books = books;
+  state.tagCloud = tagCloud;
   state.loading.books = false;
   safeRender();
 }
@@ -182,9 +187,10 @@ async function loadAddresses() {
 async function loadAdmin() {
   if (!state.user || state.user.role !== 'ADMIN') return;
   state.loading.admin = true;
-  const [books, categories, orders, stats, flashSales, invoices, invoiceStats, bookLists, questions, answers, qnaStats] = await Promise.all([
+  const [books, categories, tags, orders, stats, flashSales, invoices, invoiceStats, bookLists, questions, answers, qnaStats] = await Promise.all([
     api.admin.getBooks(),
     api.admin.getCategories(),
+    api.admin.getTags(),
     api.admin.getOrders(),
     api.admin.getOrderStats(),
     api.admin.getFlashSales(),
@@ -197,6 +203,7 @@ async function loadAdmin() {
   ]);
   state.admin.books = books;
   state.admin.categories = categories;
+  state.admin.tags = tags;
   state.admin.orders = orders;
   state.admin.stats = stats;
   state.admin.flashSales = flashSales;

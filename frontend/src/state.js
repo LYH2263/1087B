@@ -13,8 +13,11 @@ export const state = {
     categoryId: '',
     sort: '',
     minPrice: '',
-    maxPrice: ''
+    maxPrice: '',
+    tagIds: [],
+    tagLogic: 'OR'
   },
+  tagCloud: [],
   currentBook: null,
   bookQuestions: {
     items: [],
@@ -57,9 +60,12 @@ export const state = {
     tab: 'books',
     books: [],
     categories: [],
+    tags: [],
     orders: [],
     stats: null,
     editingBook: null,
+    editingBookTags: [],
+    editingTag: null,
     flashSales: [],
     editingFlashSale: null,
     invoices: [],
@@ -140,6 +146,15 @@ export function getComparisonBooks() {
 }
 
 export function normalizeBookSearch(params = {}) {
+  let tagIds = [];
+  if (params.tagIds) {
+    if (Array.isArray(params.tagIds)) {
+      tagIds = params.tagIds.map(String);
+    } else if (typeof params.tagIds === 'string') {
+      tagIds = params.tagIds.split(',').filter(Boolean);
+    }
+  }
+  
   return {
     title: String(params.title || '').trim(),
     author: String(params.author || '').trim(),
@@ -147,7 +162,9 @@ export function normalizeBookSearch(params = {}) {
     categoryId: String(params.categoryId || '').trim(),
     sort: String(params.sort || '').trim(),
     minPrice: String(params.minPrice || '').trim(),
-    maxPrice: String(params.maxPrice || '').trim()
+    maxPrice: String(params.maxPrice || '').trim(),
+    tagIds,
+    tagLogic: params.tagLogic === 'AND' ? 'AND' : 'OR'
   };
 }
 

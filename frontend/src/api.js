@@ -137,11 +137,18 @@ export const api = {
     return request('/auth/me');
   },
   getBooks(params = {}) {
-    const query = new URLSearchParams(params).toString();
+    const queryParams = { ...params };
+    if (queryParams.tagIds && Array.isArray(queryParams.tagIds)) {
+      queryParams.tagIds = queryParams.tagIds.join(',');
+    }
+    const query = new URLSearchParams(queryParams).toString();
     return request(`/books${query ? `?${query}` : ''}`);
   },
   getCategories() {
     return request('/books/categories');
+  },
+  getTagCloud() {
+    return request('/books/tags/cloud');
   },
   getCart() {
     return request('/cart');
@@ -452,6 +459,36 @@ export const api = {
     },
     deleteAnswer(id) {
       return request(`/admin/answers/${id}`, { method: 'DELETE' });
+    },
+    getTags() {
+      return request('/admin/tags');
+    },
+    createTag(payload) {
+      return request('/admin/tags', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    },
+    updateTag(id, payload) {
+      return request(`/admin/tags/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    },
+    deleteTag(id) {
+      return request(`/admin/tags/${id}`, { method: 'DELETE' });
+    },
+    getBookTags(bookId) {
+      return request(`/admin/books/${bookId}/tags`);
+    },
+    updateBookTags(bookId, tagIds) {
+      return request(`/admin/books/${bookId}/tags`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tagIds })
+      });
     }
   }
 };

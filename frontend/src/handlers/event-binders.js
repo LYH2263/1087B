@@ -9,6 +9,7 @@ import {
   addressSchema,
   adminBookSchema,
   adminCategorySchema,
+  adminTagSchema,
   flashSaleCreateSchema,
   flashSalePurchaseSchema,
   invoiceApplySchema,
@@ -394,9 +395,15 @@ export function bindEventHandlers({
         coverUrl,
         categoryId: data.categoryId
       });
+      
+      const tagIds = form.querySelectorAll('input[name="tagIds"]:checked');
+      const selectedTagIds = Array.from(tagIds).map(el => el.value);
+      
       if (state.admin.editingBook) {
         await api.admin.updateBook(state.admin.editingBook.id, payload);
+        await api.admin.updateBookTags(state.admin.editingBook.id, { tagIds: selectedTagIds });
         state.admin.editingBook = null;
+        state.admin.editingBookTags = [];
         showToast('书籍已更新', 'success');
       } else {
         await api.admin.createBook(payload);
@@ -411,6 +418,24 @@ export function bindEventHandlers({
       const parsed = adminCategorySchema.parse({ name: data.name });
       await api.admin.createCategory(parsed);
       showToast('分类已添加', 'success');
+      await loadAdmin();
+      safeRender();
+      form.reset();
+    },
+    'admin-tag': async (form) => {
+      const data = getFormData(form);
+      const parsed = adminTagSchema.parse({
+        name: data.name,
+        color: data.color
+      });
+      if (data.tagId) {
+        await api.admin.updateTag(data.tagId, parsed);
+        state.admin.editingTag = null;
+        showToast('标签已更新', 'success');
+      } else {
+        await api.admin.createTag(parsed);
+        showToast('标签已添加', 'success');
+      }
       await loadAdmin();
       safeRender();
       form.reset();
@@ -585,6 +610,28 @@ export function bindEventHandlers({
       await api.addToCart({ bookId: target.dataset.id, quantity: 1 });
       showToast('已加入购物车', 'success');
     },
+    'toggle-tag-filter': async (target) => {
+      const tagId = target.dataset.tagId;
+      const currentTagIds = [...state.bookSearch.tagIds];
+      const index = currentTagIds.indexOf(tagId);
+      
+      if (index > -1) {
+        currentTagIds.splice(index, 1);
+      } else {
+        currentTagIds.push(tagId);
+      }
+      
+      state.bookSearch.tagIds = currentTagIds;
+      await loadBooks(state.bookSearch);
+    },
+    'change-tag-logic': async (target) => {
+      state.bookSearch.tagLogic = target.dataset.logic;
+      await loadBooks(state.bookSearch);
+    },
+    'clear-tag-filter': async () => {
+      state.bookSearch.tagIds = [];
+      await loadBooks(state.bookSearch);
+    },
     'toggle-comparison': async (target) => {
       const bookId = target.dataset.id;
       const isChecked = target.checked;
@@ -739,6 +786,12 @@ export function bindEventHandlers({
     'edit-book': async (target) => {
       const book = state.admin.books.find((item) => item.id === target.dataset.id);
       state.admin.editingBook = book;
+      state.admin.editingBookTags = book?.tags || [];
+      safeRender();
+    },
+    'cancel-edit-book': async () => {
+      state.admin.editingBook = null;
+      state.admin.editingBookTags = [];
       safeRender();
     },
     'deactivate-book': async (target) => {
@@ -753,6 +806,20 @@ export function bindEventHandlers({
     },
     'delete-category': async (target) => {
       await api.admin.deleteCategory(target.dataset.id);
+      await loadAdmin();
+      safeRender();
+    },
+    'edit-tag': async (target) => {
+      const tag = state.admin.tags.find((item) => item.id === target.dataset.id);
+      state.admin.editingTag = tag;
+      safeRender();
+    },
+    'cancel-edit-tag': async () => {
+      state.admin.editingTag = null;
+      safeRender();
+    },
+    'delete-tag': async (target) => {
+      await api.admin.deleteTag(target.dataset.id);
       await loadAdmin();
       safeRender();
     },
@@ -1291,6 +1358,10 @@ export function bindEventHandlers({
       if (handler) {
         await handler(target);
       }
+    },
+    'change-tag-logic': async (target) => {
+      state.bookSearch.tagLogic = target.value;
+      await loadBooks(state.bookSearch);
     }
   };
 

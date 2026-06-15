@@ -45,6 +45,24 @@ async function main() {
 
   const categoryMap = new Map(categories.map((cat) => [cat.name, cat.id]));
 
+  const tagsData = [
+    { name: '畅销', color: '#ef4444' },
+    { name: '新书', color: '#22c55e' },
+    { name: '获奖', color: '#f59e0b' },
+    { name: '经典', color: '#8b5cf6' },
+    { name: '推荐', color: '#3b82f6' }
+  ];
+
+  const tags = await Promise.all(tagsData.map((tag) =>
+    prisma.tag.upsert({
+      where: { name: tag.name },
+      update: { color: tag.color },
+      create: tag
+    })
+  ));
+
+  const tagMap = new Map(tags.map((tag) => [tag.name, tag.id]));
+
   const books = [
     {
       title: '时间的秩序',
@@ -54,7 +72,8 @@ async function main() {
       priceCents: 4800,
       stock: 120,
       coverUrl: '/covers/cover-1.svg',
-      category: '科技'
+      category: '科技',
+      tags: ['畅销', '推荐']
     },
     {
       title: '解忧杂货店',
@@ -64,7 +83,8 @@ async function main() {
       priceCents: 3800,
       stock: 80,
       coverUrl: '/covers/cover-2.svg',
-      category: '文学'
+      category: '文学',
+      tags: ['畅销', '经典']
     },
     {
       title: '原则',
@@ -74,7 +94,8 @@ async function main() {
       priceCents: 6800,
       stock: 60,
       coverUrl: '/covers/cover-3.svg',
-      category: '经管'
+      category: '经管',
+      tags: ['畅销', '获奖']
     },
     {
       title: '小王子',
@@ -84,7 +105,8 @@ async function main() {
       priceCents: 2800,
       stock: 150,
       coverUrl: '/covers/cover-4.svg',
-      category: '少儿'
+      category: '少儿',
+      tags: ['经典', '推荐', '畅销']
     },
     {
       title: '纳瓦尔宝典',
@@ -94,7 +116,8 @@ async function main() {
       priceCents: 5200,
       stock: 75,
       coverUrl: '/covers/cover-5.svg',
-      category: '经管'
+      category: '经管',
+      tags: ['新书', '推荐']
     },
     {
       title: '人类简史',
@@ -104,7 +127,8 @@ async function main() {
       priceCents: 5800,
       stock: 90,
       coverUrl: '/covers/cover-6.svg',
-      category: '科技'
+      category: '科技',
+      tags: ['畅销', '经典', '获奖']
     },
     {
       title: '活着',
@@ -114,7 +138,8 @@ async function main() {
       priceCents: 3200,
       stock: 110,
       coverUrl: '/covers/cover-7.svg',
-      category: '文学'
+      category: '文学',
+      tags: ['经典', '获奖']
     },
     {
       title: 'DK儿童百科全书',
@@ -124,12 +149,13 @@ async function main() {
       priceCents: 8800,
       stock: 45,
       coverUrl: '/covers/cover-8.svg',
-      category: '少儿'
+      category: '少儿',
+      tags: ['新书', '推荐']
     }
   ];
 
   for (const book of books) {
-    await prisma.book.upsert({
+    const createdBook = await prisma.book.upsert({
       where: { isbn: book.isbn },
       update: {
         title: book.title,
@@ -149,6 +175,17 @@ async function main() {
         stock: book.stock,
         coverUrl: book.coverUrl,
         categoryId: categoryMap.get(book.category)
+      }
+    });
+
+    const tagIds = book.tags.map((name) => tagMap.get(name)).filter(Boolean);
+    
+    await prisma.$transaction(async (tx) => {
+      await tx.bookTag.deleteMany({ where: { bookId: createdBook.id } });
+      for (const tagId of tagIds) {
+        await tx.bookTag.create({
+          data: { bookId: createdBook.id, tagId }
+        });
       }
     });
   }

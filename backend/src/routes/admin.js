@@ -5,7 +5,7 @@ const multer = require('multer');
 const prisma = require('../db');
 const asyncHandler = require('../utils/asyncHandler');
 const { ApiError } = require('../errors');
-const { bookSchema, bookUpdateSchema, categorySchema, flashSaleCreateSchema, flashSaleUpdateSchema, invoiceRejectSchema, bookListCreateSchema, bookListUpdateSchema, bookListAddBookSchema, bookListReorderBooksSchema } = require('../validators');
+const { bookSchema, bookUpdateSchema, categorySchema, flashSaleCreateSchema, flashSaleUpdateSchema, invoiceRejectSchema, bookListCreateSchema, bookListUpdateSchema, bookListAddBookSchema, bookListReorderBooksSchema, tagSchema, bookTagsUpdateSchema } = require('../validators');
 const { toCents, fromCents } = require('../utils/money');
 
 const router = express.Router();
@@ -49,7 +49,12 @@ function mapBook(book) {
     coverUrl: book.coverUrl,
     sales: book.sales,
     status: book.status,
-    category: book.category
+    category: book.category,
+    tags: book.tags?.map(bt => ({
+      id: bt.tag.id,
+      name: bt.tag.name,
+      color: bt.tag.color
+    })) || []
   };
 }
 
@@ -69,7 +74,10 @@ router.get('/books', asyncHandler(async (req, res) => {
 
   const books = await prisma.book.findMany({
     where,
-    include: { category: true },
+    include: { 
+      category: true,
+      tags: { include: { tag: true } }
+    },
     orderBy: { createdAt: 'desc' }
   });
 
@@ -1272,6 +1280,173 @@ router.delete('/answers/:id', asyncHandler(async (req, res) => {
   });
 
   res.json({ message: 'answer deleted', id: req.params.id });
+}));
+
+router.get('/tags', asyncHandler(async (req, res) => {
+  const tags = await prisma.tag.findMany({
+    orderBy: { name: 'asc' },
+    include: {
+      _count: {
+        select: { books: true }
+      }
+    }
+  });
+
+  res.json(tags.map(tag => ({
+    id: tag.id,
+    name: tag.name,
+    color: tag.color,
+    bookCount: tag._count.books,
+    createdAt: tag.createdAt
+  })));
+}));
+
+router.post('/tags', asyncHandler(async (req, res) => {
+  const payload = tagSchema.parse(req.body);
+
+  const exists = await prisma.tag.findUnique({
+    where: { name: payload.name }
+  });
+  if (exists) {
+    throw new ApiError(409, 'TAG_EXISTS');
+  }
+
+  const tag = await prisma.tag.create({
+    data: {
+      name: payload.name,
+      color: payload.color
+    }
+  });
+
+  res.status(201).json({
+    id: tag.id,
+    name: tag.name,
+    color: tag.color,
+    bookCount: 0,
+    createdAt: tag.createdAt
+  });
+}));
+
+router.put('/tags/:id', asyncHandler(async (req, res) => {
+  const payload = tagSchema.partial().parse(req.body);
+
+  const tag = await prisma.tag.findUnique({
+    where: { id: req.params.id }
+  });
+  if (!tag) {
+    throw new ApiError(404, 'TAG_NOT_FOUND');
+  }
+
+  if (payload.name && payload.name !== tag.name) {
+    const exists = await prisma.tag.findUnique({
+      where: { name: payload.name }
+    });
+    if (exists) {
+      throw new ApiError(409, 'TAG_EXISTS');
+    }
+  }
+
+  const updated = await prisma.tag.update({
+    where: { id: req.params.id },
+    data: payload,
+    include: {
+      _count: {
+        select: { books: true }
+      }
+    }
+  });
+
+  res.json({
+    id: updated.id,
+    name: updated.name,
+    color: updated.color,
+    bookCount: updated._count.books,
+    createdAt: updated.createdAt
+  });
+}));
+
+router.delete('/tags/:id', asyncHandler(async (req, res) => {
+  const tag = await prisma.tag.findUnique({
+    where: { id: req.params.id }
+  });
+  if (!tag) {
+    throw new ApiError(404, 'TAG_NOT_FOUND');
+  }
+
+  await prisma.tag.delete({
+    where: { id: req.params.id }
+  });
+
+  res.json({ message: 'tag deleted', id: req.params.id });
+}));
+
+router.get('/books/:id/tags', asyncHandler(async (req, res) => {
+  const book = await prisma.book.findUnique({
+    where: { id: req.params.id },
+    include: {
+      tags: {
+        include: { tag: true }
+      }
+    }
+  });
+
+  if (!book) {
+    throw new ApiError(404, 'BOOK_NOT_FOUND');
+  }
+
+  res.json(book.tags.map(bt => ({
+    id: bt.tag.id,
+    name: bt.tag.name,
+    color: bt.tag.color
+  })));
+}));
+
+router.put('/books/:id/tags', asyncHandler(async (req, res) => {
+  const payload = bookTagsUpdateSchema.parse(req.body);
+
+  const book = await prisma.book.findUnique({
+    where: { id: req.params.id }
+  });
+  if (!book) {
+    throw new ApiError(404, 'BOOK_NOT_FOUND');
+  }
+
+  const tags = await prisma.tag.findMany({
+    where: { id: { in: payload.tagIds } }
+  });
+  if (tags.length !== payload.tagIds.length) {
+    throw new ApiError(400, 'INVALID_TAG_IDS');
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.bookTag.deleteMany({
+      where: { bookId: req.params.id }
+    });
+
+    for (const tagId of payload.tagIds) {
+      await tx.bookTag.create({
+        data: {
+          bookId: req.params.id,
+          tagId
+        }
+      });
+    }
+  });
+
+  const updatedBook = await prisma.book.findUnique({
+    where: { id: req.params.id },
+    include: {
+      tags: {
+        include: { tag: true }
+      }
+    }
+  });
+
+  res.json(updatedBook.tags.map(bt => ({
+    id: bt.tag.id,
+    name: bt.tag.name,
+    color: bt.tag.color
+  })));
 }));
 
 module.exports = router;

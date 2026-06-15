@@ -176,6 +176,15 @@ const answerSchema = z.object({
   content: z.string().min(2, '回答内容至少2个字符').max(2000, '回答内容最多2000个字符').trim()
 });
 
+const tagSchema = z.object({
+  name: z.string().min(1, '标签名称不能为空').max(20, '标签名称最多20个字符'),
+  color: z.string().optional()
+});
+
+const bookTagsUpdateSchema = z.object({
+  tagIds: z.array(z.string()).min(0, '标签ID列表不能为空')
+});
+
 module.exports = {
   registerSchema,
   loginSchema,
@@ -200,5 +209,7 @@ module.exports = {
   bookListAddBookSchema,
   bookListReorderBooksSchema,
   questionSchema,
-  answerSchema
+  answerSchema,
+  tagSchema,
+  bookTagsUpdateSchema
 };
