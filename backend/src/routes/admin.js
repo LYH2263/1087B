@@ -5,7 +5,7 @@ const multer = require('multer');
 const prisma = require('../db');
 const asyncHandler = require('../utils/asyncHandler');
 const { ApiError } = require('../errors');
-const { bookSchema, bookUpdateSchema, categorySchema, flashSaleCreateSchema, flashSaleUpdateSchema, invoiceRejectSchema, bookListCreateSchema, bookListUpdateSchema, bookListAddBookSchema, bookListReorderBooksSchema, tagSchema, bookTagsUpdateSchema } = require('../validators');
+const { bookSchema, bookUpdateSchema, categorySchema, flashSaleCreateSchema, flashSaleUpdateSchema, invoiceRejectSchema, bookListCreateSchema, bookListUpdateSchema, bookListAddBookSchema, bookListReorderBooksSchema, tagSchema, bookTagsUpdateSchema, preSaleCreateSchema, preSaleUpdateSchema } = require('../validators');
 const { toCents, fromCents } = require('../utils/money');
 
 const router = express.Router();
@@ -1447,6 +1447,271 @@ router.put('/books/:id/tags', asyncHandler(async (req, res) => {
     name: bt.tag.name,
     color: bt.tag.color
   })));
+}));
+
+function mapAdminPreSale(preSale) {
+  const now = new Date();
+  const arrivalDate = new Date(preSale.expectedArrivalDate);
+
+  let status = 'UPCOMING';
+  if (preSale.status === 'ARRIVED') {
+    status = 'ARRIVED';
+  } else if (preSale.status === 'ENDED') {
+    status = 'ENDED';
+  } else if (now >= arrivalDate) {
+    status = 'ONGOING';
+  }
+
+  return {
+    id: preSale.id,
+    bookId: preSale.bookId,
+    expectedArrivalDate: preSale.expectedArrivalDate,
+    preSaleStock: preSale.preSaleStock,
+    reservationCount: preSale.reservationCount,
+    remainingStock: preSale.preSaleStock - preSale.reservationCount,
+    status,
+    arrivedAt: preSale.arrivedAt,
+    createdAt: preSale.createdAt,
+    updatedAt: preSale.updatedAt,
+    book: preSale.book ? {
+      id: preSale.book.id,
+      title: preSale.book.title,
+      author: preSale.book.author,
+      coverUrl: preSale.book.coverUrl,
+      price: fromCents(preSale.book.priceCents),
+      status: preSale.book.status
+    } : null
+  };
+}
+
+router.get('/pre-sales', asyncHandler(async (req, res) => {
+  const { status, keyword } = req.query;
+
+  const where = {};
+  if (status) {
+    where.status = String(status);
+  }
+  if (keyword) {
+    where.book = {
+      OR: [
+        { title: { contains: String(keyword), mode: 'insensitive' } },
+        { author: { contains: String(keyword), mode: 'insensitive' } },
+        { isbn: { contains: String(keyword), mode: 'insensitive' } }
+      ]
+    };
+  }
+
+  const preSales = await prisma.preSale.findMany({
+    where,
+    include: {
+      book: true
+    },
+    orderBy: { createdAt: 'desc' }
+  });
+
+  res.json(preSales.map(mapAdminPreSale));
+}));
+
+router.get('/pre-sales/:id', asyncHandler(async (req, res) => {
+  const preSale = await prisma.preSale.findUnique({
+    where: { id: req.params.id },
+    include: {
+      book: true,
+      reservations: {
+        include: {
+          user: {
+            select: { id: true, username: true, email: true, phone: true }
+          }
+        },
+        orderBy: { createdAt: 'desc' }
+      }
+    }
+  });
+
+  if (!preSale) {
+    throw new ApiError(404, 'PRE_SALE_NOT_FOUND');
+  }
+
+  const result = mapAdminPreSale(preSale);
+  result.reservations = preSale.reservations.map(r => ({
+    id: r.id,
+    userId: r.userId,
+    username: r.user?.username,
+    email: r.user?.email,
+    phone: r.user?.phone,
+    status: r.status,
+    notifiedAt: r.notifiedAt,
+    createdAt: r.createdAt
+  }));
+
+  res.json(result);
+}));
+
+router.post('/pre-sales', asyncHandler(async (req, res) => {
+  const payload = preSaleCreateSchema.parse(req.body);
+
+  const book = await prisma.book.findUnique({
+    where: { id: payload.bookId }
+  });
+
+  if (!book) {
+    throw new ApiError(404, 'BOOK_NOT_FOUND');
+  }
+
+  if (book.status !== 'ACTIVE') {
+    throw new ApiError(400, 'BOOK_NOT_ACTIVE');
+  }
+
+  const existing = await prisma.preSale.findFirst({
+    where: {
+      bookId: payload.bookId,
+      status: {
+        in: ['UPCOMING', 'ONGOING']
+      }
+    }
+  });
+
+  if (existing) {
+    throw new ApiError(400, 'PRE_SALE_ALREADY_EXISTS');
+  }
+
+  const preSale = await prisma.preSale.create({
+    data: {
+      bookId: payload.bookId,
+      expectedArrivalDate: new Date(payload.expectedArrivalDate),
+      preSaleStock: payload.preSaleStock
+    },
+    include: { book: true }
+  });
+
+  res.status(201).json(mapAdminPreSale(preSale));
+}));
+
+router.put('/pre-sales/:id', asyncHandler(async (req, res) => {
+  const payload = preSaleUpdateSchema.parse(req.body);
+
+  const existing = await prisma.preSale.findUnique({
+    where: { id: req.params.id }
+  });
+
+  if (!existing) {
+    throw new ApiError(404, 'PRE_SALE_NOT_FOUND');
+  }
+
+  const data = {};
+
+  if (payload.expectedArrivalDate !== undefined) {
+    data.expectedArrivalDate = new Date(payload.expectedArrivalDate);
+  }
+
+  if (payload.preSaleStock !== undefined) {
+    if (payload.preSaleStock < existing.reservationCount) {
+      throw new ApiError(400, 'PRE_SALE_STOCK_TOO_LOW');
+    }
+    data.preSaleStock = payload.preSaleStock;
+  }
+
+  if (payload.status !== undefined) {
+    data.status = payload.status;
+  }
+
+  const preSale = await prisma.preSale.update({
+    where: { id: req.params.id },
+    data,
+    include: { book: true }
+  });
+
+  res.json(mapAdminPreSale(preSale));
+}));
+
+router.post('/pre-sales/:id/arrive', asyncHandler(async (req, res) => {
+  const preSale = await prisma.preSale.findUnique({
+    where: { id: req.params.id },
+    include: {
+      book: true,
+      reservations: {
+        where: { status: 'PENDING' },
+        include: { user: true }
+      }
+    }
+  });
+
+  if (!preSale) {
+    throw new ApiError(404, 'PRE_SALE_NOT_FOUND');
+  }
+
+  if (preSale.status === 'ARRIVED' || preSale.status === 'ENDED') {
+    throw new ApiError(400, 'PRE_SALE_ALREADY_ARRIVED');
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.preSale.update({
+      where: { id: preSale.id },
+      data: {
+        status: 'ARRIVED',
+        arrivedAt: new Date()
+      }
+    });
+
+    await tx.book.update({
+      where: { id: preSale.bookId },
+      data: {
+        stock: { increment: preSale.preSaleStock }
+      }
+    });
+
+    await tx.preSaleReservation.updateMany({
+      where: {
+        preSaleId: preSale.id,
+        status: 'PENDING'
+      },
+      data: {
+        status: 'NOTIFIED',
+        notifiedAt: new Date()
+      }
+    });
+
+    const notifications = preSale.reservations.map(r => ({
+      userId: r.userId,
+      type: 'PRE_SALE_ARRIVAL',
+      title: '预售书籍到货通知',
+      content: `您预约的《${preSale.book.title}》已到货，快来选购吧！`,
+      relatedId: preSale.bookId
+    }));
+
+    if (notifications.length > 0) {
+      await tx.notification.createMany({
+        data: notifications
+      });
+    }
+  });
+
+  const updated = await prisma.preSale.findUnique({
+    where: { id: preSale.id },
+    include: { book: true }
+  });
+
+  res.json(mapAdminPreSale(updated));
+}));
+
+router.delete('/pre-sales/:id', asyncHandler(async (req, res) => {
+  const preSale = await prisma.preSale.findUnique({
+    where: { id: req.params.id }
+  });
+
+  if (!preSale) {
+    throw new ApiError(404, 'PRE_SALE_NOT_FOUND');
+  }
+
+  if (preSale.reservationCount > 0 && preSale.status !== 'ENDED') {
+    throw new ApiError(400, 'PRE_SALE_HAS_RESERVATIONS');
+  }
+
+  await prisma.preSale.delete({
+    where: { id: req.params.id }
+  });
+
+  res.json({ message: 'pre sale deleted', id: preSale.id });
 }));
 
 module.exports = router;

@@ -185,6 +185,22 @@ const bookTagsUpdateSchema = z.object({
   tagIds: z.array(z.string()).min(0, '标签ID列表不能为空')
 });
 
+const preSaleCreateSchema = z.object({
+  bookId: z.string().min(1, '请选择书籍'),
+  expectedArrivalDate: z.string().refine((v) => !isNaN(Date.parse(v)), '预计到货日期格式不正确'),
+  preSaleStock: z.number().int().min(1, '预售库存至少1件')
+});
+
+const preSaleUpdateSchema = z.object({
+  expectedArrivalDate: z.string().refine((v) => !isNaN(Date.parse(v)), '预计到货日期格式不正确').optional(),
+  preSaleStock: z.number().int().min(0, '预售库存不能为负数').optional(),
+  status: z.enum(['UPCOMING', 'ONGOING', 'ARRIVED', 'ENDED']).optional()
+});
+
+const preSaleReserveSchema = z.object({
+  preSaleId: z.string().min(1, '预售ID不能为空')
+});
+
 module.exports = {
   registerSchema,
   loginSchema,
@@ -211,5 +227,8 @@ module.exports = {
   questionSchema,
   answerSchema,
   tagSchema,
-  bookTagsUpdateSchema
+  bookTagsUpdateSchema,
+  preSaleCreateSchema,
+  preSaleUpdateSchema,
+  preSaleReserveSchema
 };

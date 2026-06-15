@@ -20,6 +20,7 @@ const flashSaleRoutes = require('./routes/flashSales');
 const invoiceRoutes = require('./routes/invoices');
 const bookListRoutes = require('./routes/bookLists');
 const questionRoutes = require('./routes/questions');
+const preSaleRoutes = require('./routes/preSales');
 
 const app = express();
 const fs = require('fs');
@@ -58,6 +59,7 @@ app.use('/api/flash-sales', flashSaleRoutes);
 app.use('/api/invoices', requireAuth, invoiceRoutes);
 app.use('/api/book-lists', bookListRoutes);
 app.use('/api', questionRoutes);
+app.use('/api/pre-sales', preSaleRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'NOT_FOUND' });

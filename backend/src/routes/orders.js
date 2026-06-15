@@ -56,7 +56,7 @@ router.post('/checkout', asyncHandler(async (req, res) => {
 
   const cartItems = await prisma.cartItem.findMany({
     where: { userId: req.user.id },
-    include: { book: true }
+    include: { book: { include: { preSale: true } } }
   });
 
   if (cartItems.length === 0) {
@@ -66,6 +66,9 @@ router.post('/checkout', asyncHandler(async (req, res) => {
   for (const item of cartItems) {
     if (item.book.status !== 'ACTIVE') {
       throw new ApiError(400, 'BOOK_NOT_AVAILABLE');
+    }
+    if (item.book.preSale && item.book.preSale.status !== 'ARRIVED' && item.book.preSale.status !== 'ENDED') {
+      throw new ApiError(400, 'BOOK_ON_PRE_SALE');
     }
     if (item.book.stock < item.quantity) {
       throw new ApiError(400, 'INSUFFICIENT_STOCK');

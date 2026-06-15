@@ -144,6 +144,7 @@ export function bindEventHandlers({
   showToast,
   updateAuthUI,
   updateComparisonUI,
+  updateNotificationBadge,
   setView,
   loadBooks,
   normalizeBookSearch,
@@ -153,6 +154,9 @@ export function bindEventHandlers({
   loadAddresses,
   loadAdmin,
   loadFlashSales,
+  loadPreSales,
+  loadMyReservations,
+  loadNotifications,
   loadBookLists,
   loadBookListDetail,
   loadBookDetail,
@@ -212,6 +216,14 @@ export function bindEventHandlers({
       updateAuthUI();
       closeModal();
       showToast('登录成功', 'success');
+      try {
+        await Promise.all([
+          typeof loadNotifications === 'function' ? loadNotifications().catch(() => {}) : Promise.resolve(),
+          typeof loadMyReservations === 'function' ? loadMyReservations().catch(() => {}) : Promise.resolve()
+        ]);
+      } catch (e) {
+        // ignore
+      }
       await setView('books');
     },
     register: async (form) => {
@@ -494,6 +506,31 @@ export function bindEventHandlers({
           submitBtn.textContent = originalText || '立即抢购';
         }
       }
+    },
+    'admin-pre-sale': async (form) => {
+      const data = getFormData(form);
+      
+      if (data.id) {
+        const payload = {
+          expectedArrivalDate: data.expectedArrivalDate,
+          preSaleStock: Number(data.preSaleStock)
+        };
+        await api.admin.updatePreSale(data.id, payload);
+        state.admin.editingPreSale = null;
+        showToast('预售已更新', 'success');
+      } else {
+        const payload = {
+          bookId: data.bookId,
+          expectedArrivalDate: data.expectedArrivalDate,
+          preSaleStock: Number(data.preSaleStock)
+        };
+        await api.admin.createPreSale(payload);
+        showToast('预售已创建', 'success');
+      }
+      if (typeof loadAdmin === 'function') await loadAdmin();
+      if (typeof loadPreSales === 'function') await loadPreSales();
+      safeRender();
+      form.reset();
     },
     'admin-book-list': async (form) => {
       const data = getFormData(form);
@@ -969,6 +1006,147 @@ export function bindEventHandlers({
       await loadAdmin();
       safeRender();
       showToast('秒杀场次已删除', 'success');
+    },
+    'reserve-book': async (target) => {
+      if (!state.user) {
+        openLoginModal();
+        return;
+      }
+      const preSaleId = target.dataset.preSaleId || target.dataset.id;
+      if (!preSaleId) {
+        showToast('预售信息不存在', 'error');
+        return;
+      }
+      await api.reservePreSale({ preSaleId });
+      showToast('预约成功，到货后将第一时间通知您', 'success');
+      if (typeof loadPreSales === 'function') await loadPreSales();
+      if (typeof loadMyReservations === 'function') await loadMyReservations();
+      safeRender();
+    },
+    'cancel-reservation': async (target) => {
+      if (!confirm('确定要取消这个预约吗？')) {
+        return;
+      }
+      const reservationId = target.dataset.id;
+      await api.cancelReservation(reservationId);
+      showToast('预约已取消', 'success');
+      if (typeof loadMyReservations === 'function') await loadMyReservations();
+      if (typeof loadPreSales === 'function') await loadPreSales();
+      safeRender();
+    },
+    'buy-reserved-book': async (target) => {
+      const bookId = target.dataset.id;
+      await api.addToCart({ bookId, quantity: 1 });
+      showToast('已加入购物车', 'success');
+      state.view = 'cart';
+      if (typeof setView === 'function') {
+        await setView('cart');
+      } else {
+        safeRender();
+      }
+    },
+    'go-to-books': async () => {
+      state.view = 'books';
+      safeRender();
+    },
+    'go-to-reservations': async () => {
+      if (!state.user) {
+        openLoginModal();
+        return;
+      }
+      state.view = 'reservations';
+      if (typeof setView === 'function') {
+        await setView('reservations');
+      } else {
+        safeRender();
+      }
+    },
+    'edit-pre-sale': async (target) => {
+      const preSale = state.admin.preSales?.items?.find((item) => item.id === target.dataset.id);
+      if (preSale) {
+        state.admin.editingPreSale = preSale;
+      }
+      safeRender();
+    },
+    'cancel-edit-pre-sale': async () => {
+      state.admin.editingPreSale = null;
+      safeRender();
+    },
+    'delete-pre-sale': async (target) => {
+      if (!confirm('确定要删除这个预售活动吗？删除后无法恢复。')) {
+        return;
+      }
+      await api.admin.deletePreSale(target.dataset.id);
+      showToast('预售活动已删除', 'success');
+      if (typeof loadAdmin === 'function') await loadAdmin();
+      if (typeof loadPreSales === 'function') await loadPreSales();
+      safeRender();
+    },
+    'arrive-pre-sale': async (target) => {
+      if (!confirm('确定标记该书已到货吗？标记后将向所有预约用户发送到货通知。')) {
+        return;
+      }
+      await api.admin.markPreSaleArrived(target.dataset.id);
+      showToast('已标记到货，通知已发送', 'success');
+      if (typeof loadAdmin === 'function') await loadAdmin();
+      if (typeof loadPreSales === 'function') await loadPreSales();
+      safeRender();
+    },
+    'view-pre-sale': async (target) => {
+      const preSaleId = target.dataset.id;
+      const preSale = state.admin.preSales?.items?.find(item => item.id === preSaleId);
+      if (!preSale) return;
+      
+      const book = preSale.book || {};
+      openModal(`
+        <div class="space-y-4">
+          <h3 class="text-lg font-semibold">预售详情</h3>
+          <div class="flex gap-4">
+            <img src="${book.coverUrl || '/covers/cover-1.svg'}" alt="${book.title || ''}" class="w-20 h-28 rounded-lg object-contain bg-white" />
+            <div class="flex-1">
+              <p class="font-semibold">${book.title || ''}</p>
+              <p class="text-sm text-slate-500">${book.author || ''}</p>
+              <p class="text-orange-500 font-semibold">${formatCurrencyLocal(book.price || 0)}</p>
+            </div>
+          </div>
+          <div class="space-y-2 text-sm">
+            <p><span class="text-slate-400">状态：</span>${preSale.status === 'UPCOMING' ? '即将开售' : preSale.status === 'ONGOING' ? '预售中' : preSale.status === 'ARRIVED' ? '已到货' : '已结束'}</p>
+            <p><span class="text-slate-400">预计到货：</span>${preSale.expectedArrivalDate ? new Date(preSale.expectedArrivalDate).toLocaleDateString() : '-'}</p>
+            <p><span class="text-slate-400">预售库存：</span>${preSale.preSaleStock || 0} 本</p>
+            <p><span class="text-slate-400">已预约：</span>${preSale.reservationCount || 0} 人</p>
+            ${preSale.arrivedAt ? `<p><span class="text-slate-400">实际到货：</span>${new Date(preSale.arrivedAt).toLocaleString()}</p>` : ''}
+          </div>
+        </div>
+      `);
+    },
+    'read-notification': async (target) => {
+      const notificationId = target.dataset.id;
+      try {
+        await api.markNotificationRead(notificationId);
+        const notification = state.notifications.items?.find(n => n.id === notificationId);
+        if (notification && !notification.read) {
+          notification.read = true;
+          state.notifications.unreadCount = Math.max(0, (state.notifications.unreadCount || 0) - 1);
+        }
+        if (typeof updateNotificationBadge === 'function') updateNotificationBadge();
+        safeRender();
+      } catch (e) {
+        // ignore
+      }
+    },
+    'read-all-notifications': async () => {
+      try {
+        await api.markAllNotificationsRead();
+        if (state.notifications.items) {
+          state.notifications.items.forEach(n => n.read = true);
+        }
+        state.notifications.unreadCount = 0;
+        if (typeof updateNotificationBadge === 'function') updateNotificationBadge();
+        showToast('已全部标记为已读', 'success');
+        safeRender();
+      } catch (e) {
+        showToast(e.message || '操作失败', 'error');
+      }
     },
     'apply-invoice': async (target) => {
       if (!state.user) {

@@ -37,11 +37,16 @@ router.post('/', asyncHandler(async (req, res) => {
   const payload = cartAddSchema.parse(req.body);
 
   const book = await prisma.book.findUnique({
-    where: { id: payload.bookId }
+    where: { id: payload.bookId },
+    include: { preSale: true }
   });
 
   if (!book || book.status !== 'ACTIVE') {
     throw new ApiError(404, 'BOOK_NOT_FOUND');
+  }
+
+  if (book.preSale && book.preSale.status !== 'ARRIVED' && book.preSale.status !== 'ENDED') {
+    throw new ApiError(400, 'BOOK_ON_PRE_SALE');
   }
 
   const existingItem = await prisma.cartItem.findUnique({

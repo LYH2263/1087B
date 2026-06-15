@@ -283,6 +283,44 @@ export const api = {
       method: 'POST'
     });
   },
+  getActivePreSales() {
+    return request('/pre-sales/active');
+  },
+  getPreSale(id) {
+    return request(`/pre-sales/${id}`);
+  },
+  getBookPreSale(bookId) {
+    return request(`/pre-sales/book/${bookId}`);
+  },
+  reservePreSale(preSaleId) {
+    return request('/pre-sales/reserve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ preSaleId })
+    });
+  },
+  cancelReservation(reservationId) {
+    return request(`/pre-sales/reservations/${reservationId}/cancel`, {
+      method: 'POST'
+    });
+  },
+  getMyReservations() {
+    return request('/pre-sales/reservations/mine');
+  },
+  getNotifications(params = {}) {
+    const query = new URLSearchParams(params).toString();
+    return request(`/pre-sales/notifications${query ? `?${query}` : ''}`);
+  },
+  markNotificationRead(id) {
+    return request(`/pre-sales/notifications/${id}/read`, {
+      method: 'POST'
+    });
+  },
+  markAllNotificationsRead() {
+    return request('/pre-sales/notifications/read-all', {
+      method: 'POST'
+    });
+  },
   admin: {
     getBooks(params = {}) {
       const query = new URLSearchParams(params).toString();
@@ -489,6 +527,35 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tagIds })
       });
+    },
+    getPreSales(params = {}) {
+      const query = new URLSearchParams(params).toString();
+      return request(`/admin/pre-sales${query ? `?${query}` : ''}`);
+    },
+    getPreSale(id) {
+      return request(`/admin/pre-sales/${id}`);
+    },
+    createPreSale(payload) {
+      return request('/admin/pre-sales', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    },
+    updatePreSale(id, payload) {
+      return request(`/admin/pre-sales/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    },
+    markPreSaleArrived(id) {
+      return request(`/admin/pre-sales/${id}/arrive`, {
+        method: 'POST'
+      });
+    },
+    deletePreSale(id) {
+      return request(`/admin/pre-sales/${id}`, { method: 'DELETE' });
     }
   }
 };

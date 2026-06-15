@@ -49,6 +49,26 @@ enum BookListStatus {
   ARCHIVED
 }
 
+enum PreSaleStatus {
+  UPCOMING
+  ONGOING
+  ARRIVED
+  ENDED
+}
+
+enum PreSaleReservationStatus {
+  PENDING
+  NOTIFIED
+  FULFILLED
+  CANCELED
+}
+
+enum NotificationType {
+  PRE_SALE_ARRIVAL
+  SYSTEM
+  ORDER
+}
+
 enum PaymentMethod {
   WECHAT
   ALIPAY
@@ -75,6 +95,8 @@ model User {
   questions    Question[]
   answers      Answer[]
   answerLikes  AnswerLike[]
+  preSaleReservations PreSaleReservation[]
+  notifications Notification[]
 }
 
 model Session {
@@ -125,6 +147,8 @@ model Book {
   listItems   BookListItem[]
   questions   Question[]
   tags        BookTag[]
+  preSale     PreSale?
+  preSaleReservations PreSaleReservation[]
 }
 
 model Tag {
@@ -337,4 +361,56 @@ model AnswerLike {
   @@unique([answerId, userId])
   @@index([answerId])
   @@index([userId])
+}
+
+model PreSale {
+  id                String              @id @default(cuid())
+  bookId            String              @unique
+  book              Book                @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  expectedArrivalDate DateTime
+  preSaleStock      Int
+  reservationCount  Int                 @default(0)
+  status            PreSaleStatus       @default(UPCOMING)
+  arrivedAt         DateTime?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  reservations      PreSaleReservation[]
+
+  @@index([status])
+  @@index([expectedArrivalDate])
+}
+
+model PreSaleReservation {
+  id        String                   @id @default(cuid())
+  preSaleId String
+  userId    String
+  bookId    String
+  status    PreSaleReservationStatus @default(PENDING)
+  notifiedAt DateTime?
+  createdAt DateTime                 @default(now())
+  updatedAt DateTime                 @updatedAt
+  preSale   PreSale                  @relation(fields: [preSaleId], references: [id], onDelete: Cascade)
+  user      User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  book      Book                     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+
+  @@unique([preSaleId, userId])
+  @@index([preSaleId])
+  @@index([userId])
+  @@index([status])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  content   String
+  relatedId String?
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now())
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([read])
+  @@index([createdAt])
 }

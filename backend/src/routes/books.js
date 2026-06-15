@@ -7,7 +7,7 @@ const { ApiError } = require('../errors');
 const router = express.Router();
 
 function mapBook(book) {
-  return {
+  const result = {
     id: book.id,
     title: book.title,
     author: book.author,
@@ -25,6 +25,29 @@ function mapBook(book) {
       color: bt.tag.color
     })) : []
   };
+
+  if (book.preSale && book.preSale.status !== 'ENDED') {
+    const now = new Date();
+    const arrivalDate = new Date(book.preSale.expectedArrivalDate);
+    let status = 'UPCOMING';
+    if (book.preSale.status === 'ARRIVED') {
+      status = 'ARRIVED';
+    } else if (now >= arrivalDate) {
+      status = 'ONGOING';
+    }
+
+    result.preSale = {
+      id: book.preSale.id,
+      expectedArrivalDate: book.preSale.expectedArrivalDate,
+      preSaleStock: book.preSale.preSaleStock,
+      reservationCount: book.preSale.reservationCount,
+      remainingStock: book.preSale.preSaleStock - book.preSale.reservationCount,
+      status,
+      arrivedAt: book.preSale.arrivedAt
+    };
+  }
+
+  return result;
 }
 
 router.get('/', asyncHandler(async (req, res) => {
@@ -117,7 +140,8 @@ router.get('/', asyncHandler(async (req, res) => {
       category: true,
       tags: {
         include: { tag: true }
-      }
+      },
+      preSale: true
     },
     orderBy
   });
@@ -161,7 +185,8 @@ router.get('/:id([a-z0-9]{25})', asyncHandler(async (req, res) => {
       category: true,
       tags: {
         include: { tag: true }
-      }
+      },
+      preSale: true
     }
   });
 

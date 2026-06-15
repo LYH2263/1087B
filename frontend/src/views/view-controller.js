@@ -89,6 +89,48 @@ export function createViewController({
     return map[status] || status;
   }
 
+  function formatPreSaleStatus(status) {
+    const map = {
+      UPCOMING: '即将开售',
+      ONGOING: '预售中',
+      ARRIVED: '已到货',
+      ENDED: '已结束'
+    };
+    return map[status] || status;
+  }
+
+  function formatReservationStatus(status) {
+    const map = {
+      PENDING: '待到货',
+      NOTIFIED: '已通知',
+      FULFILLED: '已购买',
+      CANCELED: '已取消'
+    };
+    return map[status] || status;
+  }
+
+  function formatDate(dateStr) {
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+  }
+
+  function formatDateTime(dateStr) {
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    return date.toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  }
+
   function setNavActive(view) {
     document.querySelectorAll('.nav-btn').forEach((btn) => {
       const active = btn.dataset.view === view;
@@ -300,6 +342,77 @@ export function createViewController({
     `;
   }
 
+  function renderPreSaleSection() {
+    const items = state.preSales.items || [];
+    if (items.length === 0) return '';
+
+    const displayItems = items.slice(0, 6);
+
+    const cards = displayItems.map(item => {
+      const book = item.book || {};
+      const isSoldOut = item.remainingStock <= 0;
+      
+      return `
+        <div class="card hover-card p-4 flex flex-col gap-3 relative overflow-hidden" data-pre-sale-id="${item.id}">
+          <div class="absolute top-2 right-2 z-10">
+            <span class="badge badge-active bg-orange-500">🔥 预售中</span>
+          </div>
+          <div class="flex gap-4">
+            <div class="w-28 h-36 rounded-xl overflow-hidden bg-slate-100 flex-shrink-0">
+              <img src="${book.coverUrl || '/covers/cover-1.svg'}" alt="${book.title || ''}" class="w-full h-full object-contain" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <h3 class="font-semibold text-base truncate">${book.title || ''}</h3>
+              <p class="text-xs text-slate-500 truncate">${book.author || ''}</p>
+              <div class="mt-2">
+                <span class="text-2xl font-bold text-orange-500">${formatCurrency(book.price || 0)}</span>
+              </div>
+              <div class="mt-2">
+                <p class="text-xs text-slate-500">
+                  预计到货：${formatDate(item.expectedArrivalDate)}
+                </p>
+              </div>
+              <div class="mt-1">
+                <p class="text-xs text-slate-500">
+                  已预约 ${item.reservationCount} / ${item.preSaleStock} 件
+                </p>
+              </div>
+            </div>
+          </div>
+          <div class="bg-orange-50 rounded-lg p-3">
+            <div class="flex items-center justify-between">
+              <span class="text-xs text-slate-500">
+                ${isSoldOut ? '预约已满' : '抢先预约，到货优先购'}
+              </span>
+              <button class="btn-primary bg-orange-500 hover:bg-orange-600 text-sm" data-action="reserve-book" data-id="${item.id}" ${isSoldOut ? 'disabled' : ''}>
+                ${isSoldOut ? '已约满' : '立即预约'}
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div class="card p-5 bg-gradient-to-br from-orange-50 to-amber-50 border-orange-100">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center gap-2">
+            <span class="text-2xl">📦</span>
+            <h3 class="text-xl font-bold text-slate-800">新书预售</h3>
+            <span class="text-xs text-slate-500">到货通知</span>
+          </div>
+          <button class="text-sm text-orange-600 hover:text-orange-700" data-action="go-to-reservations">
+            我的预约 →
+          </button>
+        </div>
+        ${state.preSales.loading 
+          ? `<div class="animate-pulse h-48 bg-white rounded-xl"></div>`
+          : `<div class="grid md:grid-cols-2 xl:grid-cols-3 gap-4">${cards}</div>`
+        }
+      </div>
+    `;
+  }
+
   function renderTagCloud() {
     const tags = state.tagCloud || [];
     if (tags.length === 0) return '';
@@ -384,6 +497,24 @@ export function createViewController({
           const isInComparison = state.comparison.items.includes(book.id);
           const isInactive = book.status !== 'ACTIVE';
           const tagBadges = renderBookTags(book.tags);
+          const hasPreSale = book.preSale && book.preSale.status !== 'ARRIVED' && book.preSale.status !== 'ENDED';
+          const isPreSaleArrived = book.preSale && book.preSale.status === 'ARRIVED';
+          
+          let preSaleBadge = '';
+          let preSaleInfo = '';
+          let buyButton = '';
+          
+          if (hasPreSale) {
+            preSaleBadge = '<span class="badge badge-active bg-orange-500">🔥 预售</span>';
+            preSaleInfo = `<span class="badge badge-tag text-orange-600 bg-orange-50" style="border-color: #fed7aa;">预计 ${formatDate(book.preSale.expectedArrivalDate)} 到货</span>`;
+            buyButton = `<button class="btn-primary bg-orange-500 hover:bg-orange-600" data-action="reserve-book" data-id="${book.preSale.id}" ${isInactive ? 'disabled' : ''}>立即预约</button>`;
+          } else if (isPreSaleArrived) {
+            preSaleBadge = '<span class="badge badge-active bg-emerald-500">✓ 已到货</span>';
+            buyButton = `<button class="btn-primary" data-action="add-to-cart" data-id="${book.id}" ${isInactive ? 'disabled' : ''}>加入购物车</button>`;
+          } else {
+            buyButton = `<button class="btn-primary" data-action="add-to-cart" data-id="${book.id}" ${isInactive ? 'disabled' : ''}>加入购物车</button>`;
+          }
+          
           return `
         <div class="card hover-card p-4 flex flex-col gap-3 ${isInactive ? 'opacity-60' : ''}" data-book-id="${book.id}">
           <div class="flex justify-between items-start">
@@ -397,7 +528,10 @@ export function createViewController({
               />
               <span class="text-xs text-slate-600">加入对比</span>
             </label>
-            ${isInactive ? '<span class="badge badge-inactive">已下架</span>' : ''}
+            <div class="flex gap-1">
+              ${preSaleBadge}
+              ${isInactive ? '<span class="badge badge-inactive">已下架</span>' : ''}
+            </div>
           </div>
           <div class="rounded-xl overflow-hidden h-44 bg-slate-100">
             <img src="${book.coverUrl}" alt="${book.title}" class="w-full h-full object-contain" />
@@ -408,9 +542,13 @@ export function createViewController({
             <div class="flex flex-wrap gap-2 mt-2">
               <span class="badge">${book.category?.name || '未分类'}</span>
               ${tagBadges}
+              ${preSaleInfo}
             </div>
             <div class="flex flex-wrap gap-2 mt-1">
-              <span class="badge">库存 ${book.stock}</span>
+              ${hasPreSale 
+                ? `<span class="badge">预约 ${book.preSale.reservationCount}/${book.preSale.preSaleStock}</span>`
+                : `<span class="badge">库存 ${book.stock}</span>`
+              }
               <span class="badge">销量 ${book.sales}</span>
             </div>
           </div>
@@ -418,7 +556,7 @@ export function createViewController({
             <p class="text-lg font-semibold text-slate-900 ${isInactive ? 'line-through text-slate-400' : ''}">${formatCurrency(book.price)}</p>
             <div class="flex gap-2">
               <button class="btn-outline" data-action="view-book-detail" data-id="${book.id}">详情</button>
-              <button class="btn-primary" data-action="add-to-cart" data-id="${book.id}" ${isInactive ? 'disabled' : ''}>${isInactive ? '暂不可购' : '加入购物车'}</button>
+              ${buyButton}
             </div>
           </div>
         </div>
@@ -435,10 +573,12 @@ export function createViewController({
     `;
 
     const flashSaleSection = renderFlashSaleSection();
+    const preSaleSection = renderPreSaleSection();
     const tagCloudSection = renderTagCloud();
 
     viewContent.innerHTML = `
       ${flashSaleSection}
+      ${preSaleSection}
       ${tagCloudSection}
       <div class="card p-5">
         <form class="grid md:grid-cols-6 gap-3" data-form="book-search" novalidate>
@@ -703,6 +843,140 @@ export function createViewController({
       .join('');
   }
 
+  function renderReservations() {
+    viewTitle.innerHTML = `
+      <div>
+        <h2 class="text-xl font-semibold">我的预约</h2>
+        <p class="text-sm text-slate-500">预售书籍到货将第一时间通知您</p>
+      </div>
+    `;
+
+    if (!state.user) {
+      viewContent.innerHTML = `<div class="card p-6 text-slate-500">请先登录后查看预约。</div>`;
+      return;
+    }
+
+    if (state.reservations.loading) {
+      viewContent.innerHTML = `<div class="card p-6"><div class="animate-pulse space-y-4">
+        ${Array.from({ length: 3 }).map(() => '<div class="h-24 bg-slate-200 rounded-xl"></div>').join('')}
+      </div></div>`;
+      return;
+    }
+
+    if (state.reservations.items.length === 0) {
+      viewContent.innerHTML = `
+        <div class="card p-10 text-center">
+          <div class="text-5xl mb-4">📦</div>
+          <p class="text-slate-500 mb-4">暂无预约记录</p>
+          <button class="btn-primary" data-action="go-to-books">去逛逛新书</button>
+        </div>
+      `;
+      return;
+    }
+
+    viewContent.innerHTML = state.reservations.items
+      .map(
+        (reservation) => {
+          const book = reservation.book || {};
+          const preSale = reservation.preSale || {};
+          const statusBadge = reservation.status === 'PENDING'
+            ? '<span class="badge">待到货</span>'
+            : reservation.status === 'NOTIFIED'
+              ? '<span class="badge badge-active bg-emerald-500">已到货</span>'
+              : reservation.status === 'FULFILLED'
+                ? '<span class="badge badge-active">已购买</span>'
+                : '<span class="badge badge-inactive">已取消</span>';
+
+          return `
+        <div class="card p-6 space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p class="text-xs text-slate-400">预约时间 ${formatDateTime(reservation.createdAt)}</p>
+              <h3 class="text-lg font-semibold">${statusBadge} ${formatReservationStatus(reservation.status)}</h3>
+            </div>
+          </div>
+          <div class="flex items-center gap-4">
+            <img src="${book.coverUrl || '/covers/cover-1.svg'}" alt="${book.title || ''}" class="w-20 h-28 rounded-lg object-contain bg-white" />
+            <div class="flex-1 min-w-0">
+              <p class="font-semibold truncate">${book.title || ''}</p>
+              <p class="text-sm text-slate-500 truncate">${book.author || ''}</p>
+              <p class="text-lg font-semibold text-orange-500 mt-1">${formatCurrency(book.price || 0)}</p>
+              <p class="text-xs text-slate-500 mt-1">
+                预计到货：${formatDate(preSale.expectedArrivalDate)}
+              </p>
+            </div>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            ${reservation.status === 'PENDING' ? `<button class="btn-outline" data-action="cancel-reservation" data-id="${reservation.id}">取消预约</button>` : ''}
+            ${reservation.status === 'NOTIFIED' ? `<button class="btn-primary bg-orange-500 hover:bg-orange-600" data-action="buy-reserved-book" data-id="${reservation.bookId}">立即购买</button>` : ''}
+          </div>
+        </div>
+      `;
+        }
+      )
+      .join('');
+  }
+
+  function renderNotifications() {
+    viewTitle.innerHTML = `
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-xl font-semibold">消息通知</h2>
+          <p class="text-sm text-slate-500">${state.notifications.unreadCount || 0} 条未读消息</p>
+        </div>
+        ${state.notifications.unreadCount > 0 ? '<button class="btn-outline btn-sm" data-action="read-all-notifications">全部已读</button>' : ''}
+      </div>
+    `;
+
+    if (!state.user) {
+      viewContent.innerHTML = `<div class="card p-6 text-slate-500">请先登录后查看通知。</div>`;
+      return;
+    }
+
+    if (state.notifications.loading) {
+      viewContent.innerHTML = `<div class="card p-6"><div class="animate-pulse space-y-4">
+        ${Array.from({ length: 3 }).map(() => '<div class="h-16 bg-slate-200 rounded-xl"></div>').join('')}
+      </div></div>`;
+      return;
+    }
+
+    if (state.notifications.items.length === 0) {
+      viewContent.innerHTML = `
+        <div class="card p-10 text-center">
+          <div class="text-5xl mb-4">🔔</div>
+          <p class="text-slate-500">暂无通知消息</p>
+        </div>
+      `;
+      return;
+    }
+
+    viewContent.innerHTML = `
+      <div class="space-y-2">
+        ${state.notifications.items
+          .map(
+            (notification) => `
+          <div class="card p-4 cursor-pointer hover:bg-slate-50 transition-colors ${notification.read ? 'opacity-60' : ''}" data-action="read-notification" data-id="${notification.id}">
+            <div class="flex items-start gap-3">
+              <div class="text-2xl flex-shrink-0">
+                ${notification.type === 'PRE_SALE_ARRIVAL' ? '📦' : notification.type === 'ORDER' ? '📋' : '🔔'}
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center justify-between gap-2">
+                  <h4 class="font-semibold truncate">${notification.title}</h4>
+                  ${!notification.read ? '<span class="w-2 h-2 bg-red-500 rounded-full flex-shrink-0"></span>' : ''}
+                </div>
+                <p class="text-sm text-slate-600 mt-1 line-clamp-2">${notification.content}</p>
+                <p class="text-xs text-slate-400 mt-2">${formatDateTime(notification.createdAt)}</p>
+              </div>
+            </div>
+          </div>
+        `
+          )
+          .join('')}
+      </div>
+    `;
+  }
+
   function renderProfile() {
     viewTitle.innerHTML = `
       <div class="flex items-center justify-between">
@@ -811,6 +1085,7 @@ export function createViewController({
         <button class="btn-outline" data-action="admin-tab" data-tab="tags">标签管理</button>
         <button class="btn-outline" data-action="admin-tab" data-tab="orders">订单管理</button>
         <button class="btn-outline" data-action="admin-tab" data-tab="flash-sales">秒杀管理</button>
+        <button class="btn-outline" data-action="admin-tab" data-tab="pre-sales">预售管理</button>
         <button class="btn-outline" data-action="admin-tab" data-tab="invoices">发票管理</button>
         <button class="btn-outline" data-action="admin-tab" data-tab="book-lists">书单管理</button>
         <button class="btn-outline" data-action="admin-tab" data-tab="qna">问答管理</button>
@@ -1152,6 +1427,83 @@ export function createViewController({
           </form>
         </div>
         <div class="grid lg:grid-cols-2 gap-4">${flashSaleRows || '<div class="text-slate-500">暂无秒杀场次</div>'}</div>
+      `;
+    }
+
+    if (state.admin.tab === 'pre-sales') {
+      const bookOptions = state.admin.books
+        .filter(book => book.status === 'ACTIVE')
+        .map(
+          (book) =>
+            `<option value="${book.id}" ${state.admin.editingPreSale?.bookId === book.id ? 'selected' : ''}>${book.title} - ${formatCurrency(book.price)}</option>`
+        )
+        .join('');
+
+      const editing = state.admin.editingPreSale;
+
+      const preSaleRows = state.admin.preSales?.items?.length
+        ? state.admin.preSales.items
+            .map((preSale) => {
+              const statusBadge = preSale.status === 'UPCOMING' || preSale.status === 'ONGOING'
+                ? '<span class="badge">预售中</span>'
+                : preSale.status === 'ARRIVED'
+                  ? '<span class="badge badge-active">已到货</span>'
+                  : '<span class="badge badge-inactive">已结束</span>';
+
+              return `
+        <div class="border border-slate-200 rounded-xl p-4 space-y-3 hover-card">
+          <div class="flex justify-between items-start">
+            <div>
+              <h4 class="font-semibold">${preSale.book?.title || '未知书籍'}</h4>
+              <p class="text-sm text-slate-500">${preSale.book?.author || ''}</p>
+            </div>
+            ${statusBadge}
+          </div>
+          <div class="text-sm text-slate-600 space-y-1">
+            <p>预计到货：${formatDate(preSale.expectedArrivalDate)}</p>
+            <p>预售库存：${preSale.preSaleStock} 本</p>
+            <p>已预约：${preSale.reservationCount} 人</p>
+            ${preSale.arrivedAt ? `<p class="text-emerald-600">实际到货：${formatDateTime(preSale.arrivedAt)}</p>` : ''}
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <button class="btn-outline" data-action="view-pre-sale" data-id="${preSale.id}">查看详情</button>
+            ${(preSale.status === 'UPCOMING' || preSale.status === 'ONGOING') ? `<button class="btn-outline" data-action="edit-pre-sale" data-id="${preSale.id}">编辑</button>` : ''}
+            ${(preSale.status === 'UPCOMING' || preSale.status === 'ONGOING') ? `<button class="btn-primary bg-orange-500 hover:bg-orange-600" data-action="arrive-pre-sale" data-id="${preSale.id}">标记到货</button>` : ''}
+            ${(preSale.status === 'UPCOMING' || preSale.status === 'ONGOING') ? `<button class="btn-outline text-red-500" data-action="delete-pre-sale" data-id="${preSale.id}">删除</button>` : ''}
+          </div>
+        </div>
+      `;
+            })
+            .join('')
+        : '<div class="text-slate-500">暂无预售活动</div>';
+
+      content = `
+        <div class="card p-6 space-y-4">
+          <h3 class="text-lg font-semibold">${editing ? '编辑预售' : '新增预售'}</h3>
+          <form data-form="admin-pre-sale" class="grid md:grid-cols-2 gap-3" novalidate>
+            ${editing ? `<input type="hidden" name="id" value="${editing.id}" />` : ''}
+            <div class="space-y-1">
+              <label class="text-sm text-slate-600">选择书籍</label>
+              <select class="input" name="bookId" ${editing ? 'disabled' : ''} required>
+                <option value="">请选择书籍</option>
+                ${bookOptions}
+              </select>
+            </div>
+            <div class="space-y-1">
+              <label class="text-sm text-slate-600">预计到货日期</label>
+              <input class="input" type="date" name="expectedArrivalDate" value="${editing?.expectedArrivalDate?.split('T')[0] || ''}" required />
+            </div>
+            <div class="space-y-1">
+              <label class="text-sm text-slate-600">预售库存</label>
+              <input class="input" type="number" name="preSaleStock" placeholder="预售库存数量" value="${editing?.preSaleStock || 100}" min="1" required />
+            </div>
+            <div class="md:col-span-2 flex justify-end gap-2">
+              ${editing ? '<button class="btn-outline" type="button" data-action="cancel-edit-pre-sale">取消编辑</button>' : ''}
+              <button class="btn-primary" type="submit">${editing ? '保存修改' : '创建预售'}</button>
+            </div>
+          </form>
+        </div>
+        <div class="grid lg:grid-cols-2 gap-4">${preSaleRows}</div>
       `;
     }
 
@@ -2030,6 +2382,8 @@ export function createViewController({
     cart: renderCart,
     orders: renderOrders,
     invoices: renderInvoices,
+    reservations: renderReservations,
+    notifications: renderNotifications,
     profile: renderProfile,
     admin: renderAdmin,
     'book-lists': renderBookLists,

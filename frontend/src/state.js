@@ -44,6 +44,19 @@ export const state = {
   comparison: {
     items: []
   },
+  preSales: {
+    items: [],
+    loading: false
+  },
+  reservations: {
+    items: [],
+    loading: false
+  },
+  notifications: {
+    items: [],
+    unreadCount: 0,
+    loading: false
+  },
   loading: {
     books: false,
     cart: false,
@@ -76,7 +89,10 @@ export const state = {
     questions: [],
     answers: [],
     qnaStats: null,
-    qnaTab: 'questions'
+    qnaTab: 'questions',
+    preSales: [],
+    editingPreSale: null,
+    preSaleTab: 'list'
   },
   profile: {
     editingAddress: null

@@ -26,6 +26,7 @@ const adminNavBtn = document.querySelector('[data-view="admin"]');
 const adminNavSection = document.getElementById('admin-nav');
 const comparisonBar = document.getElementById('comparison-bar');
 const comparisonNavBadge = document.getElementById('comparison-nav-badge');
+const notificationBadge = document.getElementById('notification-badge');
 
 document.querySelectorAll('.nav-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
@@ -77,7 +78,13 @@ const toastMap = [
   ,
   [/QUESTION_NOT_FOUND|question_not_found/i, '问题不存在'],
   [/ANSWER_NOT_FOUND|answer_not_found/i, '回答不存在'],
-  [/ANSWER_PERMISSION_DENIED|answer_permission_denied/i, '仅管理员或已购该书的用户可回答']
+  [/ANSWER_PERMISSION_DENIED|answer_permission_denied/i, '仅管理员或已购该书的用户可回答'],
+  [/PRE_SALE_NOT_FOUND|pre_sale_not_found/i, '预售活动不存在'],
+  [/PRE_SALE_NOT_ACTIVE|pre_sale_not_active/i, '预售活动未开始或已结束'],
+  [/PRE_SALE_OUT_OF_STOCK|pre_sale_out_of_stock/i, '预售库存不足'],
+  [/PRE_SALE_ALREADY_RESERVED|pre_sale_already_reserved/i, '您已经预约过该书了'],
+  [/PRE_SALE_NOT_PENDING|pre_sale_not_pending/i, '该预约状态不支持此操作'],
+  [/BOOK_ON_PRE_SALE|book_on_pre_sale/i, '该书正在预售中，暂不可购买，请先预约']
 ];
 
 function toChineseToast(message) {
@@ -187,13 +194,14 @@ async function loadAddresses() {
 async function loadAdmin() {
   if (!state.user || state.user.role !== 'ADMIN') return;
   state.loading.admin = true;
-  const [books, categories, tags, orders, stats, flashSales, invoices, invoiceStats, bookLists, questions, answers, qnaStats] = await Promise.all([
+  const [books, categories, tags, orders, stats, flashSales, preSales, invoices, invoiceStats, bookLists, questions, answers, qnaStats] = await Promise.all([
     api.admin.getBooks(),
     api.admin.getCategories(),
     api.admin.getTags(),
     api.admin.getOrders(),
     api.admin.getOrderStats(),
     api.admin.getFlashSales(),
+    api.admin.getPreSales(),
     api.admin.getInvoices(),
     api.admin.getInvoiceStats(),
     api.admin.getBookLists(),
@@ -207,6 +215,7 @@ async function loadAdmin() {
   state.admin.orders = orders;
   state.admin.stats = stats;
   state.admin.flashSales = flashSales;
+  state.admin.preSales = preSales;
   state.admin.invoices = invoices;
   state.admin.invoiceStats = invoiceStats;
   state.admin.bookLists = bookLists;
@@ -291,6 +300,62 @@ async function loadFlashSales() {
     state.flashSales.items = [];
   } finally {
     state.loading.flashSales = false;
+  }
+}
+
+async function loadPreSales() {
+  state.loading.preSales = true;
+  try {
+    const data = await api.getActivePreSales();
+    state.preSales.items = data.items || [];
+  } catch (error) {
+    state.preSales.items = [];
+  } finally {
+    state.loading.preSales = false;
+  }
+}
+
+async function loadMyReservations() {
+  if (!state.user) return;
+  state.reservations.loading = true;
+  safeRender();
+  try {
+    const data = await api.getMyReservations();
+    state.reservations.items = data.items || [];
+  } catch (error) {
+    state.reservations.items = [];
+  } finally {
+    state.reservations.loading = false;
+    safeRender();
+  }
+}
+
+async function loadNotifications() {
+  if (!state.user) return;
+  state.notifications.loading = true;
+  safeRender();
+  try {
+    const data = await api.getNotifications();
+    state.notifications.items = data.items || [];
+    state.notifications.unreadCount = data.unreadCount || 0;
+  } catch (error) {
+    state.notifications.items = [];
+    state.notifications.unreadCount = 0;
+  } finally {
+    state.notifications.loading = false;
+    updateNotificationBadge();
+    safeRender();
+  }
+}
+
+function updateNotificationBadge() {
+  if (!notificationBadge) return;
+  const count = state.notifications.unreadCount || 0;
+  if (count > 0) {
+    notificationBadge.textContent = count > 99 ? '99+' : count;
+    notificationBadge.classList.remove('hidden');
+  } else {
+    notificationBadge.classList.add('hidden');
   }
 }
 
@@ -380,6 +445,7 @@ const viewLoaders = {
     await loadCategories();
     await loadBooks(state.bookSearch);
     await loadFlashSales();
+    await loadPreSales();
   },
   'book-lists': loadBookLists,
   'book-list-detail': async () => {},
@@ -394,6 +460,8 @@ const viewLoaders = {
   },
   orders: loadOrders,
   invoices: loadInvoices,
+  reservations: loadMyReservations,
+  notifications: loadNotifications,
   profile: loadAddresses,
   admin: loadAdmin
 };
@@ -501,6 +569,7 @@ bindEventHandlers({
   showToast,
   updateAuthUI,
   updateComparisonUI,
+  updateNotificationBadge,
   setView,
   loadBooks,
   normalizeBookSearch,
@@ -510,6 +579,9 @@ bindEventHandlers({
   loadAddresses,
   loadAdmin,
   loadFlashSales,
+  loadPreSales,
+  loadMyReservations,
+  loadNotifications,
   loadBookLists,
   loadBookListDetail,
   loadBookDetail,
@@ -535,6 +607,16 @@ async function bootstrap() {
   try {
     const me = await api.getMe();
     state.user = me;
+    if (me) {
+      try {
+        await Promise.all([
+          loadNotifications().catch(() => {}),
+          loadMyReservations().catch(() => {})
+        ]);
+      } catch (e) {
+        // ignore
+      }
+    }
   } catch (error) {
     state.user = null;
   }
