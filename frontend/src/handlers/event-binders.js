@@ -18,6 +18,7 @@ import {
   bookListAddBookSchema,
   questionSchema,
   answerSchema,
+  shippingRuleSchema,
   COVER_MAX_SIZE,
   COVER_TYPES
 } from '../validation/schemas.js';
@@ -343,9 +344,15 @@ export function bindEventHandlers({
     },
     checkout: async (form) => {
       const data = getFormData(form);
+      const checkedCheckboxes = viewContent.querySelectorAll('.cart-item-check:checked');
+      const selectedItemIds = checkedCheckboxes.length > 0
+        ? Array.from(checkedCheckboxes).map(cb => cb.dataset.id)
+        : state.cart.map(item => item.id);
+
       const parsed = checkoutSchema.parse({
         addressId: data.addressId,
-        paymentMethod: data.paymentMethod
+        paymentMethod: data.paymentMethod,
+        selectedItemIds
       });
       const submitBtn = form.querySelector('button[type="submit"]');
       const originalText = submitBtn?.textContent;
@@ -360,6 +367,7 @@ export function bindEventHandlers({
         showToast('订单已生成，请完成支付', 'success');
         await loadCart();
         await loadOrders();
+        if (typeof loadShippingCalculation === 'function') await loadShippingCalculation();
         state.view = 'orders';
         safeRender();
       } finally {
@@ -617,6 +625,28 @@ export function bindEventHandlers({
       form.reset();
       await reloadBookQuestions();
       safeRender();
+    },
+    'admin-shipping-rule': async (form) => {
+      const data = getFormData(form);
+      const parsed = shippingRuleSchema.parse({
+        name: data.name,
+        type: data.type,
+        fee: data.fee,
+        freeThreshold: data.freeThreshold || null,
+        isActive: data.isActive === 'on'
+      });
+
+      if (data.ruleId) {
+        await api.admin.updateShippingRule(data.ruleId, parsed);
+        state.admin.editingShippingRule = null;
+        showToast('运费规则已更新', 'success');
+      } else {
+        await api.admin.createShippingRule(parsed);
+        showToast('运费规则已创建', 'success');
+      }
+      if (typeof loadAdmin === 'function') await loadAdmin();
+      safeRender();
+      form.reset();
     }
   };
 
@@ -646,6 +676,10 @@ export function bindEventHandlers({
       }
       await api.addToCart({ bookId: target.dataset.id, quantity: 1 });
       showToast('已加入购物车', 'success');
+      if (state.view === 'cart' && typeof loadShippingCalculation === 'function') {
+        await loadCart();
+        await loadShippingCalculation();
+      }
     },
     'toggle-tag-filter': async (target) => {
       const tagId = target.dataset.tagId;
@@ -756,11 +790,13 @@ export function bindEventHandlers({
     'remove-cart': async (target) => {
       await api.removeCart(target.dataset.id);
       await loadCart();
+      if (typeof loadShippingCalculation === 'function') await loadShippingCalculation();
       safeRender();
     },
     'clear-cart': async () => {
       await api.clearCart();
       await loadCart();
+      if (typeof loadShippingCalculation === 'function') await loadShippingCalculation();
       safeRender();
     },
     'cancel-order': async (target) => {
@@ -1463,6 +1499,42 @@ export function bindEventHandlers({
       showToast('回答已删除', 'success');
       await loadAdmin();
       safeRender();
+    },
+    'edit-shipping-rule': async (target) => {
+      const rule = state.admin.shippingRules.find(r => r.id === target.dataset.id);
+      state.admin.editingShippingRule = rule || null;
+      safeRender();
+    },
+    'cancel-edit-shipping-rule': async () => {
+      state.admin.editingShippingRule = null;
+      safeRender();
+    },
+    'deactivate-shipping-rule': async (target) => {
+      await api.admin.updateShippingRule(target.dataset.id, { isActive: false });
+      showToast('运费规则已禁用', 'success');
+      if (typeof loadAdmin === 'function') await loadAdmin();
+      safeRender();
+    },
+    'activate-shipping-rule': async (target) => {
+      await api.admin.updateShippingRule(target.dataset.id, { isActive: true });
+      showToast('运费规则已启用', 'success');
+      if (typeof loadAdmin === 'function') await loadAdmin();
+      safeRender();
+    },
+    'delete-shipping-rule': async (target) => {
+      if (!confirm('确定要删除这条运费规则吗？删除后无法恢复。')) {
+        return;
+      }
+      await api.admin.deleteShippingRule(target.dataset.id);
+      showToast('运费规则已删除', 'success');
+      if (typeof loadAdmin === 'function') await loadAdmin();
+      safeRender();
+    },
+    'toggle-cart-item': async (target) => {
+      safeRender();
+      if (typeof loadShippingCalculation === 'function') {
+        loadShippingCalculation();
+      }
     }
   };
   
@@ -1529,6 +1601,7 @@ export function bindEventHandlers({
     'update-qty': async (target) => {
       await api.updateCart(target.dataset.id, { quantity: Number(target.value) });
       await loadCart();
+      if (typeof loadShippingCalculation === 'function') await loadShippingCalculation();
       safeRender();
     },
     'toggle-comparison': async (target) => {

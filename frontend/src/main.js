@@ -84,7 +84,8 @@ const toastMap = [
   [/PRE_SALE_OUT_OF_STOCK|pre_sale_out_of_stock/i, '预售库存不足'],
   [/PRE_SALE_ALREADY_RESERVED|pre_sale_already_reserved/i, '您已经预约过该书了'],
   [/PRE_SALE_NOT_PENDING|pre_sale_not_pending/i, '该预约状态不支持此操作'],
-  [/BOOK_ON_PRE_SALE|book_on_pre_sale/i, '该书正在预售中，暂不可购买，请先预约']
+  [/BOOK_ON_PRE_SALE|book_on_pre_sale/i, '该书正在预售中，暂不可购买，请先预约'],
+  [/SHIPPING_RULE_NOT_FOUND|shipping_rule_not_found/i, '运费规则不存在']
 ];
 
 function toChineseToast(message) {
@@ -191,10 +192,57 @@ async function loadAddresses() {
   state.addresses = await api.getAddresses();
 }
 
+async function loadShippingCalculation() {
+  if (!state.user || state.cart.length === 0) {
+    state.shipping.calculation = null;
+    state.shipping.recommendations = [];
+    return;
+  }
+
+  const checkedItems = state.cart.filter(item => {
+    const checkbox = document.querySelector(`[data-action="toggle-cart-item"][data-id="${item.id}"]`);
+    return !checkbox || checkbox.checked;
+  });
+
+  if (checkedItems.length === 0) {
+    state.shipping.calculation = null;
+    state.shipping.recommendations = [];
+    safeRender();
+    return;
+  }
+
+  state.shipping.loading = true;
+  try {
+    const itemAmounts = checkedItems.map(item => item.book.price * item.quantity);
+    const itemCount = checkedItems.reduce((sum, item) => sum + item.quantity, 0);
+
+    const calcResult = await api.calculateShipping({ itemAmounts, itemCount });
+    state.shipping.calculation = calcResult;
+
+    if (!calcResult.freeShipping && calcResult.shortAmount > 0) {
+      const excludeIds = state.cart.map(item => item.book.id).join(',');
+      const recResult = await api.getShippingRecommendations({
+        shortAmount: calcResult.shortAmount,
+        excludeIds,
+        limit: 6
+      });
+      state.shipping.recommendations = recResult.items || [];
+    } else {
+      state.shipping.recommendations = [];
+    }
+  } catch (error) {
+    state.shipping.calculation = null;
+    state.shipping.recommendations = [];
+  } finally {
+    state.shipping.loading = false;
+    safeRender();
+  }
+}
+
 async function loadAdmin() {
   if (!state.user || state.user.role !== 'ADMIN') return;
   state.loading.admin = true;
-  const [books, categories, tags, orders, stats, flashSales, preSales, invoices, invoiceStats, bookLists, questions, answers, qnaStats] = await Promise.all([
+  const [books, categories, tags, orders, stats, flashSales, preSales, invoices, invoiceStats, bookLists, questions, answers, qnaStats, shippingRules] = await Promise.all([
     api.admin.getBooks(),
     api.admin.getCategories(),
     api.admin.getTags(),
@@ -207,7 +255,8 @@ async function loadAdmin() {
     api.admin.getBookLists(),
     api.admin.getQuestions(),
     api.admin.getAnswers(),
-    api.admin.getQnaStats()
+    api.admin.getQnaStats(),
+    api.admin.getShippingRules().catch(() => [])
   ]);
   state.admin.books = books;
   state.admin.categories = categories;
@@ -222,6 +271,7 @@ async function loadAdmin() {
   state.admin.questions = questions;
   state.admin.answers = answers;
   state.admin.qnaStats = qnaStats;
+  state.admin.shippingRules = shippingRules;
   state.loading.admin = false;
 }
 
@@ -457,6 +507,7 @@ const viewLoaders = {
   cart: async () => {
     await loadCart();
     await loadAddresses();
+    await loadShippingCalculation();
   },
   orders: loadOrders,
   invoices: loadInvoices,
@@ -586,6 +637,7 @@ bindEventHandlers({
   loadBookListDetail,
   loadBookDetail,
   reloadBookQuestions,
+  loadShippingCalculation,
   safeRender,
   openModal,
   closeModal,

@@ -79,9 +79,26 @@ const addressSchema = z.object({
   isDefault: z.boolean().optional()
 });
 
+const shippingRuleCreateSchema = z.object({
+  name: z.string().min(1, '规则名称不能为空').max(50, '规则名称不能超过50个字符'),
+  type: z.enum(['FIXED', 'PER_ITEM'], { required_error: '请选择运费类型' }),
+  fee: z.number().positive('运费必须大于0'),
+  freeThreshold: z.number().positive('包邮门槛必须大于0').nullable().optional(),
+  isActive: z.boolean().optional()
+});
+
+const shippingRuleUpdateSchema = z.object({
+  name: z.string().min(1, '规则名称不能为空').max(50, '规则名称不能超过50个字符').optional(),
+  type: z.enum(['FIXED', 'PER_ITEM']).optional(),
+  fee: z.number().positive('运费必须大于0').optional(),
+  freeThreshold: z.number().positive('包邮门槛必须大于0').nullable().optional(),
+  isActive: z.boolean().optional()
+});
+
 const checkoutSchema = z.object({
   addressId: z.string().min(1),
-  paymentMethod: z.enum(['WECHAT', 'ALIPAY', 'CARD', 'COD'])
+  paymentMethod: z.enum(['WECHAT', 'ALIPAY', 'CARD', 'COD']),
+  selectedItemIds: z.array(z.string()).optional()
 });
 
 const reviewSchema = z.object({
@@ -230,5 +247,7 @@ module.exports = {
   bookTagsUpdateSchema,
   preSaleCreateSchema,
   preSaleUpdateSchema,
-  preSaleReserveSchema
+  preSaleReserveSchema,
+  shippingRuleCreateSchema,
+  shippingRuleUpdateSchema
 };

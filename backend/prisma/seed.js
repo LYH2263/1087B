@@ -206,6 +206,19 @@ async function main() {
     }
   });
 
+  await prisma.shippingRule.upsert({
+    where: { id: 'default-shipping-rule' },
+    update: {},
+    create: {
+      id: 'default-shipping-rule',
+      name: '标准运费',
+      type: 'FIXED',
+      feeCents: 1000,
+      freeThresholdCents: 9900,
+      isActive: true
+    }
+  });
+
   logger.info('Seed data initialized');
 }
 

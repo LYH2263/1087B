@@ -21,6 +21,8 @@ const invoiceRoutes = require('./routes/invoices');
 const bookListRoutes = require('./routes/bookLists');
 const questionRoutes = require('./routes/questions');
 const preSaleRoutes = require('./routes/preSales');
+const { router: shippingRoutes } = require('./routes/shipping');
+const shippingRuleRoutes = require('./routes/shippingRules');
 
 const app = express();
 const fs = require('fs');
@@ -60,6 +62,8 @@ app.use('/api/invoices', requireAuth, invoiceRoutes);
 app.use('/api/book-lists', bookListRoutes);
 app.use('/api', questionRoutes);
 app.use('/api/pre-sales', preSaleRoutes);
+app.use('/api/shipping', shippingRoutes);
+app.use('/api/admin/shipping-rules', requireAuth, requireRole('ADMIN'), shippingRuleRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'NOT_FOUND' });

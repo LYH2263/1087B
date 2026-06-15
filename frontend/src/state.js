@@ -57,6 +57,11 @@ export const state = {
     unreadCount: 0,
     loading: false
   },
+  shipping: {
+    calculation: null,
+    recommendations: [],
+    loading: false
+  },
   loading: {
     books: false,
     cart: false,
@@ -92,7 +97,9 @@ export const state = {
     qnaTab: 'questions',
     preSales: [],
     editingPreSale: null,
-    preSaleTab: 'list'
+    preSaleTab: 'list',
+    shippingRules: [],
+    editingShippingRule: null
   },
   profile: {
     editingAddress: null

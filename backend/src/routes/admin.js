@@ -209,6 +209,8 @@ router.get('/orders', asyncHandler(async (req, res) => {
     status: order.status,
     paymentMethod: order.paymentMethod,
     total: fromCents(order.totalCents),
+    shipping: fromCents(order.shippingCents),
+    itemsAmount: fromCents(order.totalCents - order.shippingCents),
     recipient: order.recipient,
     phone: order.phone,
     line1: order.line1,

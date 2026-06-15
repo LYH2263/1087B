@@ -4,6 +4,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const { ApiError } = require('../errors');
 const { checkoutSchema, reviewSchema } = require('../validators');
 const { fromCents } = require('../utils/money');
+const { getActiveRule, computeShipping } = require('./shipping');
 
 const router = express.Router();
 
@@ -13,6 +14,8 @@ function mapOrder(order) {
     status: order.status,
     paymentMethod: order.paymentMethod,
     total: fromCents(order.totalCents),
+    shipping: fromCents(order.shippingCents),
+    itemsAmount: fromCents(order.totalCents - order.shippingCents),
     recipient: order.recipient,
     phone: order.phone,
     line1: order.line1,
@@ -63,7 +66,16 @@ router.post('/checkout', asyncHandler(async (req, res) => {
     throw new ApiError(400, 'CART_EMPTY');
   }
 
-  for (const item of cartItems) {
+  const selectedIds = payload.selectedItemIds;
+  const checkoutItems = selectedIds
+    ? cartItems.filter(item => selectedIds.includes(item.id))
+    : cartItems;
+
+  if (checkoutItems.length === 0) {
+    throw new ApiError(400, 'CART_EMPTY');
+  }
+
+  for (const item of checkoutItems) {
     if (item.book.status !== 'ACTIVE') {
       throw new ApiError(400, 'BOOK_NOT_AVAILABLE');
     }
@@ -75,10 +87,15 @@ router.post('/checkout', asyncHandler(async (req, res) => {
     }
   }
 
-  const totalCents = cartItems.reduce(
+  const itemsCents = checkoutItems.reduce(
     (sum, item) => sum + item.book.priceCents * item.quantity,
     0
   );
+
+  const totalItemCount = checkoutItems.reduce((sum, item) => sum + item.quantity, 0);
+  const rule = await getActiveRule();
+  const shippingResult = await computeShipping(itemsCents, totalItemCount, rule);
+  const totalCents = itemsCents + shippingResult.shippingCents;
 
   const order = await prisma.$transaction(async (tx) => {
     const created = await tx.order.create({
@@ -86,6 +103,7 @@ router.post('/checkout', asyncHandler(async (req, res) => {
         userId: req.user.id,
         paymentMethod: payload.paymentMethod,
         totalCents,
+        shippingCents: shippingResult.shippingCents,
         recipient: address.recipient,
         phone: address.phone,
         line1: address.line1,
@@ -96,7 +114,7 @@ router.post('/checkout', asyncHandler(async (req, res) => {
       }
     });
 
-    const orderItems = cartItems.map((item) => ({
+    const orderItems = checkoutItems.map((item) => ({
       orderId: created.id,
       bookId: item.bookId,
       title: item.book.title,
@@ -108,7 +126,7 @@ router.post('/checkout', asyncHandler(async (req, res) => {
 
     await tx.orderItem.createMany({ data: orderItems });
 
-    for (const item of cartItems) {
+    for (const item of checkoutItems) {
       await tx.book.update({
         where: { id: item.bookId },
         data: { stock: { decrement: item.quantity } }
@@ -116,7 +134,7 @@ router.post('/checkout', asyncHandler(async (req, res) => {
     }
 
     await tx.cartItem.deleteMany({
-      where: { userId: req.user.id }
+      where: { userId: req.user.id, id: { in: checkoutItems.map(i => i.id) } }
     });
 
     return created;

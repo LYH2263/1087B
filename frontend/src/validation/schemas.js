@@ -187,3 +187,17 @@ export const adminTagSchema = z.object({
   name: z.string().min(1, '请输入标签名称').max(20, '标签名称最多20个字符'),
   color: z.string().optional()
 });
+
+export const shippingRuleSchema = z.object({
+  name: z.string().min(1, '请输入规则名称').max(50, '规则名称不能超过50个字符'),
+  type: z.enum(['FIXED', 'PER_ITEM'], { required_error: '请选择运费类型' }),
+  fee: z.preprocess(
+    toNumber,
+    z.number({ invalid_type_error: '请输入运费' }).positive('运费必须大于0')
+  ),
+  freeThreshold: z.preprocess(
+    (v) => (v === '' || v === null || v === undefined) ? null : toNumber(v),
+    z.number({ invalid_type_error: '请输入包邮门槛' }).positive('包邮门槛必须大于0').nullable().optional()
+  ),
+  isActive: z.boolean().optional()
+});

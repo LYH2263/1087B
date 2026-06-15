@@ -321,6 +321,17 @@ export const api = {
       method: 'POST'
     });
   },
+  calculateShipping(payload) {
+    return request('/shipping/calculate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+  },
+  getShippingRecommendations(params = {}) {
+    const query = new URLSearchParams(params).toString();
+    return request(`/shipping/recommendations${query ? `?${query}` : ''}`);
+  },
   admin: {
     getBooks(params = {}) {
       const query = new URLSearchParams(params).toString();
@@ -556,6 +567,26 @@ export const api = {
     },
     deletePreSale(id) {
       return request(`/admin/pre-sales/${id}`, { method: 'DELETE' });
+    },
+    getShippingRules() {
+      return request('/admin/shipping-rules');
+    },
+    createShippingRule(payload) {
+      return request('/admin/shipping-rules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    },
+    updateShippingRule(id, payload) {
+      return request(`/admin/shipping-rules/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    },
+    deleteShippingRule(id) {
+      return request(`/admin/shipping-rules/${id}`, { method: 'DELETE' });
     }
   }
 };

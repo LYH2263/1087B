@@ -199,12 +199,31 @@ model Address {
   user         User     @relation(fields: [userId], references: [id])
 }
 
+enum ShippingRuleType {
+  FIXED
+  PER_ITEM
+}
+
+model ShippingRule {
+  id              String          @id @default(cuid())
+  name            String
+  type            ShippingRuleType @default(FIXED)
+  feeCents        Int
+  freeThresholdCents Int?
+  isActive        Boolean         @default(true)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([isActive])
+}
+
 model Order {
   id            String       @id @default(cuid())
   userId        String
   status        OrderStatus  @default(PENDING_PAYMENT)
   paymentMethod PaymentMethod
   totalCents    Int
+  shippingCents Int          @default(0)
   recipient     String
   phone         String
   line1         String

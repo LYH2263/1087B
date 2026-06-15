@@ -621,11 +621,20 @@ export function createViewController({
     }
 
     const total = state.cart.reduce((sum, item) => sum + item.book.price * item.quantity, 0);
+    const shipping = state.shipping.calculation;
+    const recommendations = state.shipping.recommendations || [];
+    const shippingFee = shipping ? shipping.shippingFee : 0;
+    const freeShipping = shipping ? shipping.freeShipping : false;
+    const shortAmount = shipping ? shipping.shortAmount : 0;
+    const totalWithShipping = shipping ? shipping.totalAmount : total;
 
     const cartList = state.cart
       .map(
         (item) => `
       <div class="flex flex-col md:flex-row md:items-center gap-4 border-b border-slate-200 pb-4">
+        <label class="flex items-center gap-2 cursor-pointer flex-shrink-0">
+          <input type="checkbox" class="cart-item-check w-4 h-4 text-teal-600 rounded" data-action="toggle-cart-item" data-id="${item.id}" checked />
+        </label>
         <img src="${item.book.coverUrl}" alt="${item.book.title}" class="w-24 h-24 object-contain rounded-xl bg-white" />
         <div class="flex-1">
           <h3 class="font-semibold">${item.book.title}</h3>
@@ -651,16 +660,81 @@ export function createViewController({
       )
       .join('');
 
+    const shippingInfoHtml = shipping ? `
+      <div class="bg-slate-50 rounded-xl p-4 space-y-2">
+        <div class="flex justify-between text-sm">
+          <span class="text-slate-600">商品金额</span>
+          <span class="font-medium">${formatCurrency(shipping.itemsAmount)}</span>
+        </div>
+        <div class="flex justify-between text-sm">
+          <span class="text-slate-600">运费</span>
+          <span class="font-medium ${freeShipping ? 'text-emerald-600' : ''}">${freeShipping ? '免运费' : formatCurrency(shippingFee)}</span>
+        </div>
+        ${!freeShipping && shortAmount > 0 ? `
+          <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm">
+            <p class="text-amber-700 font-medium">🚚 再买 <span class="text-amber-800 font-bold">${formatCurrency(shortAmount)}</span> 即可包邮！</p>
+          </div>
+        ` : ''}
+        ${freeShipping ? `
+          <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-sm">
+            <p class="text-emerald-700 font-medium">🎉 已满包邮门槛，免运费！</p>
+          </div>
+        ` : ''}
+        <div class="flex justify-between text-base font-semibold pt-2 border-t border-slate-200">
+          <span>合计</span>
+          <span class="text-red-500">${formatCurrency(totalWithShipping)}</span>
+        </div>
+      </div>
+    ` : `
+      <div class="bg-slate-50 rounded-xl p-4 space-y-2">
+        <div class="flex justify-between text-base font-semibold">
+          <span>合计</span>
+          <span class="text-red-500">${formatCurrency(total)}</span>
+        </div>
+      </div>
+    `;
+
+    const recommendationsHtml = recommendations.length > 0 ? `
+      <div class="card p-5 space-y-4">
+        <div class="flex items-center gap-2">
+          <span class="text-xl">💡</span>
+          <h3 class="text-lg font-semibold">凑单推荐</h3>
+          <span class="text-sm text-slate-500">价格接近差额，加购即可包邮</span>
+        </div>
+        <div class="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">
+          ${recommendations.map(book => `
+            <div class="border border-slate-200 rounded-xl p-3 flex gap-3 hover-card">
+              <img src="${book.coverUrl}" alt="${book.title}" class="w-16 h-20 object-contain rounded-lg bg-white flex-shrink-0" />
+              <div class="flex-1 min-w-0">
+                <p class="font-medium text-sm truncate">${book.title}</p>
+                <p class="text-xs text-slate-500 truncate">${book.author}</p>
+                <p class="text-sm font-semibold text-red-500 mt-1">${formatCurrency(book.price)}</p>
+                <button class="btn-primary text-xs mt-1 px-2 py-1" data-action="add-to-cart" data-id="${book.id}">加购</button>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    ` : '';
+
     viewContent.innerHTML = `
       <div class="card p-6 space-y-4">
         ${state.cart.length === 0 ? '<p class="text-slate-500">购物车为空</p>' : cartList}
-        ${state.cart.length > 0 ? `<div class="flex flex-wrap items-center justify-between gap-3">
-          <p class="text-lg font-semibold">合计 ${formatCurrency(total)}</p>
-          <div class="flex gap-2">
-            <button class="btn-outline" data-action="clear-cart">清空购物车</button>
+        ${state.cart.length > 0 ? `
+        <div class="flex flex-wrap items-center justify-between gap-3 pt-2">
+          <div class="flex items-center gap-3">
+            <label class="flex items-center gap-2 cursor-pointer text-sm text-slate-600">
+              <input type="checkbox" id="select-all-cart" class="w-4 h-4 text-teal-600 rounded" checked />
+              全选
+            </label>
           </div>
-        </div>` : ''}
+          <button class="btn-outline" data-action="clear-cart">清空购物车</button>
+        </div>
+        ${shippingInfoHtml}
+        ` : ''}
       </div>
+
+      ${!freeShipping && shortAmount > 0 ? recommendationsHtml : ''}
 
       <div class="card p-6 space-y-4">
         <h3 class="text-lg font-semibold">订单确认</h3>
@@ -720,6 +794,20 @@ export function createViewController({
             <div class="text-right">
               <p class="text-sm text-slate-500">金额</p>
               <p class="text-lg font-semibold">${formatCurrency(order.total)}</p>
+            </div>
+          </div>
+          <div class="bg-slate-50 rounded-xl p-3 space-y-1 text-sm">
+            <div class="flex justify-between">
+              <span class="text-slate-500">商品金额</span>
+              <span>${formatCurrency(order.itemsAmount || (order.total - (order.shipping || 0)))}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-slate-500">运费</span>
+              <span>${order.shipping > 0 ? formatCurrency(order.shipping) : '免运费'}</span>
+            </div>
+            <div class="flex justify-between font-semibold pt-1 border-t border-slate-200">
+              <span>订单总额</span>
+              <span class="text-red-500">${formatCurrency(order.total)}</span>
             </div>
           </div>
           <div class="space-y-3">
@@ -1089,6 +1177,7 @@ export function createViewController({
         <button class="btn-outline" data-action="admin-tab" data-tab="invoices">发票管理</button>
         <button class="btn-outline" data-action="admin-tab" data-tab="book-lists">书单管理</button>
         <button class="btn-outline" data-action="admin-tab" data-tab="qna">问答管理</button>
+        <button class="btn-outline" data-action="admin-tab" data-tab="shipping-rules">运费规则</button>
       </div>
     `;
 
@@ -1858,6 +1947,84 @@ export function createViewController({
       }
 
       content = qnaStatsHtml + qnaSubTabs + qnaListHtml;
+    }
+
+    if (state.admin.tab === 'shipping-rules') {
+      const editing = state.admin.editingShippingRule;
+      const rules = state.admin.shippingRules || [];
+
+      const ruleCards = rules.map(rule => {
+        const typeLabel = rule.type === 'FIXED' ? '固定运费' : '按件运费';
+        const activeBadge = rule.isActive
+          ? '<span class="badge badge-active">启用</span>'
+          : '<span class="badge badge-inactive">禁用</span>';
+
+        return `
+          <div class="border border-slate-200 rounded-xl p-4 flex flex-col gap-3 hover-card">
+            <div class="flex justify-between items-start">
+              <div>
+                <h4 class="font-semibold">${escapeHtmlAttr(rule.name)}</h4>
+                <p class="text-sm text-slate-500">${typeLabel}</p>
+              </div>
+              ${activeBadge}
+            </div>
+            <div class="grid grid-cols-2 gap-2 text-sm">
+              <div>
+                <p class="text-xs text-slate-400">运费</p>
+                <p class="font-semibold text-red-500">${formatCurrency(rule.fee)}${rule.type === 'PER_ITEM' ? '/件' : ''}</p>
+              </div>
+              <div>
+                <p class="text-xs text-slate-400">包邮门槛</p>
+                <p class="font-semibold">${rule.freeThreshold ? formatCurrency(rule.freeThreshold) : '无'}</p>
+              </div>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <button class="btn-outline" data-action="edit-shipping-rule" data-id="${rule.id}">编辑</button>
+              ${rule.isActive
+                ? `<button class="btn-outline" data-action="deactivate-shipping-rule" data-id="${rule.id}">禁用</button>`
+                : `<button class="btn-primary" data-action="activate-shipping-rule" data-id="${rule.id}">启用</button>`
+              }
+              <button class="btn-outline text-red-600" data-action="delete-shipping-rule" data-id="${rule.id}">删除</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      content = `
+        <div class="card p-6 space-y-4">
+          <h3 class="text-lg font-semibold">${editing ? '编辑运费规则' : '新增运费规则'}</h3>
+          <form data-form="admin-shipping-rule" class="grid md:grid-cols-2 gap-3" novalidate>
+            <input type="hidden" name="ruleId" value="${editing?.id || ''}" />
+            <div class="space-y-1">
+              <label class="text-sm text-slate-600">规则名称</label>
+              <input class="input" name="name" placeholder="如：标准运费" value="${escapeHtmlAttr(editing?.name || '')}" required />
+            </div>
+            <div class="space-y-1">
+              <label class="text-sm text-slate-600">运费类型</label>
+              <select class="input" name="type" required>
+                <option value="FIXED" ${editing?.type === 'FIXED' ? 'selected' : ''}>固定运费</option>
+                <option value="PER_ITEM" ${editing?.type === 'PER_ITEM' ? 'selected' : ''}>按件运费</option>
+              </select>
+            </div>
+            <div class="space-y-1">
+              <label class="text-sm text-slate-600">运费金额（元）</label>
+              <input class="input" name="fee" type="number" step="0.01" placeholder="运费金额" value="${editing?.fee || ''}" required />
+            </div>
+            <div class="space-y-1">
+              <label class="text-sm text-slate-600">包邮门槛（元，留空则无包邮）</label>
+              <input class="input" name="freeThreshold" type="number" step="0.01" placeholder="满 X 元包邮" value="${editing?.freeThreshold || ''}" />
+            </div>
+            <label class="flex items-center gap-2 text-sm text-slate-600">
+              <input type="checkbox" name="isActive" ${editing?.isActive !== false ? 'checked' : ''} /> 启用该规则
+            </label>
+            <div class="flex justify-end gap-2">
+              ${editing ? '<button class="btn-outline" type="button" data-action="cancel-edit-shipping-rule">取消</button>' : ''}
+              <button class="btn-primary" type="submit">${editing ? '保存修改' : '创建规则'}</button>
+            </div>
+          </form>
+        </div>
+        <div class="grid lg:grid-cols-2 gap-4">${ruleCards || '<div class="text-slate-500">暂无运费规则</div>'}</div>
+      `;
     }
 
     viewContent.innerHTML = `${adminTabs}${content}`;
