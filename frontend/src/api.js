@@ -238,6 +238,13 @@ export const api = {
   deleteAddress(id) {
     return request(`/addresses/${id}`, { method: 'DELETE' });
   },
+  parseAddress(text) {
+    return request('/addresses/parse', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text })
+    });
+  },
   getServerTime() {
     return request('/flash-sales/time');
   },

@@ -1122,6 +1122,27 @@ export function createViewController({
         <div class="grid md:grid-cols-2 gap-3">${addressList || '<p class="text-slate-500">暂无地址</p>'}</div>
         <form data-form="address" class="grid md:grid-cols-2 gap-3" novalidate>
           <input type="hidden" name="addressId" value="${editingAddress?.id || ''}" />
+          
+          <div class="md:col-span-2 space-y-2">
+            <label class="text-sm text-slate-600 font-medium">💡 智能填写</label>
+            <div class="flex gap-2">
+              <input 
+                class="input flex-1" 
+                name="smartInput" 
+                placeholder="粘贴完整地址文本，如：张三 13800001111 浙江省杭州市西湖区文三路 100 号" 
+              />
+              <button class="btn-primary flex-shrink-0" type="button" data-action="parse-address" id="parse-address-btn">
+                一键解析
+              </button>
+            </div>
+            <p class="text-xs text-slate-500">支持姓名、手机号、省市、详细地址的智能识别，多种分隔符和顺序均可识别</p>
+            <div id="parse-warnings" class="hidden"></div>
+          </div>
+          
+          <div class="md:col-span-2 border-t border-slate-200 pt-2">
+            <p class="text-xs text-slate-500 mb-3">以下字段可手动调整：</p>
+          </div>
+          
           <div class="space-y-1">
             <input class="input" name="recipient" placeholder="收件人" value="${editingAddress?.recipient || ''}" required />
           </div>

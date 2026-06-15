@@ -419,12 +419,13 @@ export function bindEventHandlers({
     },
     address: async (form) => {
       const data = getFormData(form);
+      const { smartInput, ...addressData } = data;
       const parsed = addressSchema.parse({
-        ...data,
-        isDefault: Boolean(data.isDefault)
+        ...addressData,
+        isDefault: Boolean(addressData.isDefault)
       });
-      if (data.addressId) {
-        await api.updateAddress(data.addressId, parsed);
+      if (addressData.addressId) {
+        await api.updateAddress(addressData.addressId, parsed);
         showToast('地址已更新', 'success');
       } else {
         await api.addAddress(parsed);
@@ -922,6 +923,103 @@ export function bindEventHandlers({
         state.profile.editingAddress = null;
       }
       safeRender();
+    },
+    'parse-address': async (target) => {
+      const form = target.closest('form');
+      if (!form) return;
+      
+      const smartInput = form.querySelector('[name="smartInput"]');
+      const text = smartInput?.value?.trim();
+      
+      if (!text) {
+        showToast('请先粘贴地址文本', 'error');
+        smartInput?.focus();
+        return;
+      }
+      
+      const parseBtn = target;
+      const originalText = parseBtn.textContent;
+      parseBtn.disabled = true;
+      parseBtn.textContent = '解析中...';
+      
+      try {
+        const result = await api.parseAddress(text);
+        
+        const fields = {
+          recipient: form.querySelector('[name="recipient"]'),
+          phone: form.querySelector('[name="phone"]'),
+          line1: form.querySelector('[name="line1"]'),
+          city: form.querySelector('[name="city"]'),
+          state: form.querySelector('[name="state"]'),
+          postalCode: form.querySelector('[name="postalCode"]')
+        };
+        
+        const fieldLabels = {
+          recipient: '收件人',
+          phone: '手机号',
+          line1: '详细地址',
+          city: '城市',
+          state: '省份',
+          postalCode: '邮编'
+        };
+        
+        Object.keys(fields).forEach(key => {
+          if (result[key] && fields[key]) {
+            fields[key].value = result[key];
+            clearFieldError(fields[key]);
+            fields[key].classList.add('ring-2', 'ring-teal-400', 'ring-opacity-50');
+            setTimeout(() => {
+              fields[key].classList.remove('ring-2', 'ring-teal-400', 'ring-opacity-50');
+            }, 1500);
+          }
+        });
+        
+        const warningsContainer = form.querySelector('#parse-warnings');
+        if (warningsContainer) {
+          if (result.warnings && result.warnings.length > 0) {
+            const criticalWarnings = result.warnings.filter(w => !w.includes('邮编'));
+            const minorWarnings = result.warnings.filter(w => w.includes('邮编'));
+            
+            let html = '';
+            if (criticalWarnings.length > 0) {
+              html += `
+                <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-1">
+                  <p class="text-sm font-medium text-amber-800">⚠️ 部分字段未识别，请手动补充：</p>
+                  <ul class="text-sm text-amber-700 space-y-0.5">
+                    ${criticalWarnings.map(w => `<li>• ${w}</li>`).join('')}
+                  </ul>
+                </div>
+              `;
+            }
+            if (minorWarnings.length > 0) {
+              html += `
+                <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-2">
+                  <p class="text-sm text-blue-700">ℹ️ ${minorWarnings.join('、')}</p>
+                </div>
+              `;
+            }
+            
+            warningsContainer.innerHTML = html;
+            warningsContainer.classList.remove('hidden');
+          } else {
+            warningsContainer.innerHTML = `
+              <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+                <p class="text-sm text-emerald-700">✅ 所有字段识别成功！请核对后提交</p>
+              </div>
+            `;
+            warningsContainer.classList.remove('hidden');
+          }
+        }
+        
+        const successCount = Object.keys(fields).filter(key => result[key]).length;
+        showToast(`已解析 ${successCount}/6 个字段`, 'success');
+        
+      } catch (error) {
+        showToast(error.message || '解析失败，请重试', 'error');
+      } finally {
+        parseBtn.disabled = false;
+        parseBtn.textContent = originalText;
+      }
     },
     'admin-tab': async (target) => {
       state.admin.tab = target.dataset.tab;

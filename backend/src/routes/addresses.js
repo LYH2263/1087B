@@ -3,8 +3,20 @@ const prisma = require('../db');
 const asyncHandler = require('../utils/asyncHandler');
 const { addressSchema } = require('../validators');
 const { ApiError } = require('../errors');
+const { parseAddress } = require('../utils/addressParser');
+const { z } = require('zod');
 
 const router = express.Router();
+
+const parseAddressSchema = z.object({
+  text: z.string().min(1, '解析文本不能为空')
+});
+
+router.post('/parse', asyncHandler(async (req, res) => {
+  const payload = parseAddressSchema.parse(req.body);
+  const result = parseAddress(payload.text);
+  res.json(result);
+}));
 
 router.get('/', asyncHandler(async (req, res) => {
   const addresses = await prisma.address.findMany({
